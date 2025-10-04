@@ -1,0 +1,93 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Users {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  username  String   @unique
+  name      String
+  password  String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  //Relation
+  projects       Projects[]       @relation("ProjectLeader")
+  projectMembers ProjectMembers[]
+}
+
+model Projects {
+  id        String    @id @default(uuid())
+  name      String
+  owner     String
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  // //Relation
+  leader  Users            @relation("ProjectLeader", fields: [owner], references: [id])
+  tasks   Tasks[] // Relation to Task
+  members ProjectMembers[]
+
+  @@index([owner])
+}
+
+model ProjectMembers {
+  id        String      @id @default(uuid())
+  projectId String      @map("project_id")
+  userId    String      @map("user_id")
+  role      ProjectRole // enum : LEADER, MEMBER
+  joinedAt  DateTime    @default(now()) @map("joined_at")
+  isActive  Boolean     @default(true) @map("is_active")
+
+  // // Relation
+  project Projects @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user    Users    @relation(fields: [userId], references: [id])
+  tasks   Tasks[]
+
+  @@unique([projectId, userId]) // mencegah user yang sama masuk project yang sama dua kali
+  @@index([projectId])
+  @@index([userId])
+}
+
+model Tasks {
+  id          String    @id @default(uuid())
+  title       String
+  description String?
+  completed   Boolean   @default(false)
+  asigneeId   String?   @map("asignee_id")
+  projectId   String    @map("project_id")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  deletedAt   DateTime? @map("deleted_at")
+
+  //Relation
+  asignee ProjectMembers? @relation(fields: [asigneeId], references: [id])
+  project Projects        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@index([asigneeId])
+  @@index([completed])
+}
+
+model Authentications {
+  id    String @id @default(uuid())
+  token String
+
+  @@index([token])
+}
+
+enum ProjectRole {
+  LEADER
+  MEMBER
+}
