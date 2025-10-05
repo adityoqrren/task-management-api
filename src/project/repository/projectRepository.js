@@ -10,13 +10,19 @@ export const addProject = async (projectData) => {
     });
 };
 
-export const getProjectsByUserId = async (userId, withDeleted = false) => {
+export const getProjectsByUserId = async (status, { userId, page, limit, filter = {}, sortBy, order }) => {
+    const skip = (page - 1) * limit;
+
+    const where = {
+        ...filter,
+        userId, project: {
+            ...(status == "all" ? {} : (status == "deleted") ? { NOT: { deletedAt: null } } : { deletedAt: null })
+        }
+    };
+
     const result = await prisma.projectMembers.findMany({
-        where: {
-            userId, project: {
-                ...(withDeleted ? {} : { deletedAt: null })
-            }
-        }, select: {
+        where, 
+        select: {
             id: true,
             role: true,
             joinedAt: true,
@@ -26,16 +32,30 @@ export const getProjectsByUserId = async (userId, withDeleted = false) => {
                     id: true,
                     name: true,
                     createdAt: true,
+                    updatedAt: true,
                 }
             }
-        }
+        },
+        skip,
+        take: (limit > 0) ? limit : undefined,
+        orderBy: {
+            project: {
+                [sortBy]: order
+            }
+        },
     });
 
-    return result.map(res => ({
+    const projects = result.map(res => ({
         projectId: res.project.id,
         name: res.project.name,
         role: res.role,
+        createdAt: res.project.createdAt,
+        updatedAt: res.project.updatedAt
     }));
+
+    const totalProjects = await prisma.projectMembers.count({where});
+
+    return {projects, totalProjects};
 };
 
 export const getProjectById = async (id) => {
@@ -48,6 +68,8 @@ export const getProjectById = async (id) => {
         owner: result.owner,
         projectId: result.id,
         name: result.name,
+        createdAt: result.createdAt,
+        updatedAt: result.updatedAt
     })
 };
 
@@ -82,7 +104,7 @@ export const deleteProject = async (id) => {
 
 //Manage members of project
 export const addProjectMember = async (data) => {
-    const {id, ...res} = await prisma.projectMembers.create({
+    const { id, ...res } = await prisma.projectMembers.create({
         data, select: {
             id: true,
             projectId: true,
@@ -94,7 +116,7 @@ export const addProjectMember = async (data) => {
 
     return {
         memberId: id,
-        ...res 
+        ...res
     };
 };
 

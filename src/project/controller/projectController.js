@@ -31,9 +31,34 @@ export const handleAddProjectMember = async (req, res, next) => {
 
 export const handleGetProjects = async (req, res, next) => {
     try {
+        const { status = 'active', sortBy, order } = req.query;
         const userId = req.user.id;
-        const projects = await getAllUserProjectsService(userId);
-        return successResponse(res, null, projects);
+
+        const limit = parseInt(req.query.limit, 10) || 0;
+        const page = parseInt(req.query.page, 10) || 1;
+
+        const filter = {};
+
+        // Validasi sorting
+        const validSortFields = ['createdAt', 'updatedAt', 'name'];
+        const validOrders = ['asc', 'desc'];
+
+        const sortField = validSortFields.includes(sortBy) ? sortBy : 'createdAt';
+        const sortOrder = validOrders.includes(order) ? order : 'desc';
+
+        const { projects, totalProjects } = await getAllUserProjectsService(status, { userId, page, limit, filter, sortBy: sortField, order: sortOrder });
+
+        const totalPages = (limit) ? Math.ceil(totalProjects / limit) : (totalProjects > 0) ? 1 : 0;
+        if (totalPages > 0 && page > totalPages) throw new BadRequestError("Page is over from limit");
+
+        return successPaginationResponse(res, null, projects, {
+            total: totalProjects,
+            page: page,
+            totalPages,
+            limit,
+            hasPrev: (limit > 0) ? (page > 1) : false,
+            hasNext: (limit > 0) ? (page < totalPages) : false
+        });
     } catch (err) {
         next(err);
     }
@@ -62,11 +87,8 @@ export const handleGetProjectById = async (req, res, next) => {
     try {
         const userId = req.user.id;
         // console.log(`${userId} - ${req.params.id}`)
-        const { projectId, name } = await getProjectByIdService({ userId, projectId: req.params.id })
-        return successResponse(res, null, {
-            projectId,
-            name
-        });
+        const project = await getProjectByIdService({ userId, projectId: req.params.id })
+        return successResponse(res, null, project);
     } catch (err) {
         next(err)
     }

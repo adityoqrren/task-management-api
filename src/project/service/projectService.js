@@ -89,12 +89,12 @@ export const updateActiveProjectMemberService = async ({ projectId, memberId, is
     };
 }
 
-export const getAllUserProjectsService = async (userId) => {
+export const getAllUserProjectsService = async (status, queryParams) => {
     // const checkUser = await getUserById(userId);
     // if (!checkUser) throw new NotFoundError("User with this user id is not found");
 
-    const projects = await getProjectsByUserId(userId);
-    return projects;
+    const {projects, totalProjects} = await getProjectsByUserId(status, queryParams);
+    return {projects, totalProjects};
 };
 
 export const getAllUserProjectsFromAllService = async (userId) => {
