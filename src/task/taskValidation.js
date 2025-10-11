@@ -9,6 +9,13 @@ export const postTaskSchema = z.object({
     }).strict(),
 });
 
+export const postTaskImageSchema = z.object({
+    body: z.object({
+        imageTitle: z.string().min(4, "Image title must be at least 4 chars")
+            .refine(val => val.trim().length > 0, { message: "Title cannot be only whitespace" }),
+    }),
+});
+
 export const assignTaskSchema = z.object({
     body: z.object({
         memberId: z.string().nullable(),

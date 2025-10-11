@@ -2,9 +2,11 @@ import express from 'express';
 import {
   handleAssignActiveTask,
   handleDeleteTask,
+  handleDeleteTaskImage,
   handleGetAllUserTasks,
   handleGetTaskById,
   handleGetTaskByIdFromAll,
+  handlePostImageTask,
   handlePostTask,
   handleRestoreSoftDeletedTask,
   handleSoftDeleteTask,
@@ -27,14 +29,18 @@ import { cacheTasks } from '../middlewares/caching.js';
 import { apiLimiter } from '../middlewares/rateLimiter.js';
 import { checkProjectRole, checkProjectRoleForTask } from '../middlewares/checkProjectRole.js';
 import { validateRequest } from '../middlewares/validateRequest.js';
-import { assignTaskSchema, updateTaskSchema, updateTaskStatusSchema, postTaskSchema } from './taskValidation.js';
+import { assignTaskSchema, updateTaskSchema, updateTaskStatusSchema, postTaskSchema, postTaskImageSchema } from './taskValidation.js';
+import multer from 'multer';
 
 const router = express.Router();
+const upload = multer({ storage: multer.memoryStorage() });  // simpan file in memory buffer before processing
 
 router.use(authenticate);
 // router.use(apiLimiter);
 
 router.post('/', validateRequest(postTaskSchema), checkProjectRole(['LEADER']), handlePostTask);
+router.post('/:taskId/image', checkProjectRoleForTask(['LEADER','MEMBER']), upload.single('imageFile'), validateRequest(postTaskImageSchema), handlePostImageTask);
+router.delete('/:taskId/image/:imageId', checkProjectRoleForTask(['LEADER','MEMBER']), upload.single('imageFile'), handleDeleteTaskImage );
 router.get('/me', handleGetAllUserTasks);
 router.patch('/:taskId/assign', validateRequest(assignTaskSchema), checkProjectRoleForTask(['LEADER']), handleAssignActiveTask);
 router.get('/:taskId', checkProjectRoleForTask(['LEADER','MEMBER']), handleGetTaskById);

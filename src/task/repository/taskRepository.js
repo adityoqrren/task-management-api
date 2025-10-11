@@ -4,6 +4,14 @@ export const addTask = async (data) => {
   return await prisma.tasks.create({ data });
 };
 
+export const addTaskImage = async (data) => {
+  return await prisma.taskImages.create({
+    data, include: {
+      task: true,
+    }
+  });
+}
+
 export const getAllTasks = async (status, { userId, page, limit, filter = {}, sortBy, order }) => {
   console.log(`userId : ${userId} | status ${status} | page ${page} | limit ${limit} | filter ${filter} | sortBy ${sortBy} | order ${order}`);
   const skip = (page - 1) * limit;
@@ -83,6 +91,9 @@ export const getTaskById = async (id, withDeleted) => {
 
   const result = await prisma.tasks.findFirst({
     where,
+    include: {
+      taskImages: true,
+    }
     // include: {
     //   user: {
     //     select: {
@@ -98,6 +109,18 @@ export const getTaskById = async (id, withDeleted) => {
     //     }
     //   }
     // }
+  });
+
+  return result;
+};
+
+export const getTaskImageById = async (id) => {
+  const where = {
+    id,
+  };
+
+  const result = await prisma.taskImages.findFirst({
+    where,
   });
 
   return result;
@@ -140,6 +163,10 @@ export const restoreSoftDeletedTasksByProjectId = async (projectId) => {
 
   return totalUpdated;
 }
+
+export const deleteTaskImage = async (id) => {
+  return await prisma.taskImages.delete({ where: { id } });
+};
 
 export const deleteTask = async (id) => {
   return await prisma.tasks.delete({ where: { id } });

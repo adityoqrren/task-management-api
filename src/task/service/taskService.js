@@ -1,8 +1,12 @@
+import { ta } from "zod/locales";
 import { redis } from "../../config/redis.js";
 import { BadRequestError, NotFoundError } from "../../exceptions/errors.js";
 import { getProjectMemberByMemberIdService, getProjectMembersService } from "../../project/service/projectService.js";
 import { makeError } from "../../utils/response.js";
-import { bulkMarkTasksCompleted, bulkSoftDeleteTasks, addTask, deleteTask, findValidTasksByIds, getAllTasks, getTaskById, softDeleteTask, editTask, softDeleteTasksByProjectId, restoreSoftDeletedTasksByProjectId } from "../repository/taskRepository.js";
+import { bulkMarkTasksCompleted, bulkSoftDeleteTasks, addTask, deleteTask, findValidTasksByIds, getAllTasks, getTaskById, softDeleteTask, editTask, softDeleteTasksByProjectId, restoreSoftDeletedTasksByProjectId, addTaskImage, getTaskImageById, deleteTaskImage } from "../repository/taskRepository.js";
+import StorageService from "../../storage/storageService.js";
+
+const storageService = new StorageService();
 
 export const addTaskService = async (data) => {
   // // Invalidate cache: delete cache
@@ -14,6 +18,29 @@ export const addTaskService = async (data) => {
   return await addTask(data);
 };
 
+export const addTaskImageService = async ({ taskId, imageTitle, fileBuffer, objectKey, fileMimeType }) => {
+  try {
+    // upload to bucket
+    const presignedUrlFromBucket = await storageService.writeFile(fileBuffer, objectKey, fileMimeType);
+    // add image info to db
+    const addImageToDb = await addTaskImage({
+      taskId,
+      imageTitle,
+      objectKey,
+      bucketKey: process.env.R2_BUCKET_NAME,
+    });
+    return {
+      taskId,
+      projectId: addImageToDb.task.projectId,
+      taskTitle: addImageToDb.task.title,
+      imageTitle,
+      imageUrl: presignedUrlFromBucket,
+    }
+  } catch (error) {
+    throw error;
+  }
+};
+
 export const getAllTasksService = async (status, queryParams) => {
   const { tasks, totalTasks } = await getAllTasks(status, queryParams);
 
@@ -23,11 +50,35 @@ export const getAllTasksService = async (status, queryParams) => {
 export const getTaskByIdService = async ({ taskId, withDeleted }) => {
   const task = await getTaskById(taskId, withDeleted);
   if (!task) throw new NotFoundError('Task not found');
-  const { id, asigneeId: picId, ...rest } = task;
+  const { id, asigneeId: picId, taskImages, ...rest } = task;
+  const storageService = new StorageService();
+  //TODO: we have to generate url for each task images
+
+  // console.log(taskImages[0]);
+
+  // const forTesting = await storageService.createPreSignedUrl({
+  //   bucket: taskImages[0].bucketKey,
+  //   key: taskImages[0].objectKey,
+  // });
+
+  // console.log(forTesting);
+
+  const taskImagesWithUrl = await Promise.all(taskImages.map(async(taskImage) => {
+    const imageUrl = await storageService.createPreSignedUrl({
+      bucket: taskImage.bucketKey,
+      key: taskImage.objectKey,
+    });
+    return {
+      ...taskImage,
+      imageUrl
+    };
+  }));
+
   return {
     taskId: id,
     picId,
-    ...rest
+    ...rest,
+    taskImages : taskImagesWithUrl
   };
 };
 
@@ -109,6 +160,17 @@ export const restoreSoftDeletedTasksByProjectIdService = async ({ userId, projec
     throw BadRequestError("Failed to restore tasks");
   }
   return totalTasks;
+}
+
+export const deleteTaskImageService = async(imageId) => {
+  const existing = await getTaskImageById(imageId);
+  if (!existing) throw new NotFoundError('Image not found');
+  const deleteFromBucket = await storageService.deleteFile(existing.objectKey);
+  if (!deleteFromBucket.success) {
+    throw new BadRequestError('Failed to delete image from storage');
+  }
+  const deletedImage = await deleteTaskImage(imageId);
+  return deletedImage;
 }
 
 export const deleteTaskService = async ({ userId, taskId }) => {

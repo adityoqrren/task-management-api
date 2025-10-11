@@ -1,5 +1,6 @@
 import { BadRequestError } from '../../exceptions/errors.js';
 import { makeError, successPaginationResponse, successResponse } from '../../utils/response.js';
+import { deleteTaskImage } from '../repository/taskRepository.js';
 import {
   addTaskService,
   getAllTasksService,
@@ -12,8 +13,11 @@ import {
   bulkSoftDeleteTasksService,
   bulkMarkCompletedService,
   softDeleteTasksByProjectService,
-  assignActiveTaskService
+  assignActiveTaskService,
+  addTaskImageService,
+  deleteTaskImageService
 } from '../service/taskService.js';
+import path from 'path';
 
 export const handlePostTask = async (req, res, next) => {
   try {
@@ -29,6 +33,52 @@ export const handlePostTask = async (req, res, next) => {
       taskId: task.id,
       projectId
     }, 201);
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const handlePostImageTask = async (req, res, next) => {
+  try {
+    const taskId = req.params.taskId;
+    const { imageTitle } = req.body;
+
+    // console.log(`taskId : ${taskId} | imageTitle : ${imageTitle}`);
+
+    const file = req.file;
+    if (!file) {
+      return new BadRequestError("Image file is required");
+    }
+
+    // Cek MIME type
+    const allowedMime = ["image/jpeg", "image/png", "image/webp"];
+    const fileMimeType = file.mimetype;
+
+    if (!allowedMime.includes(fileMimeType)) {
+      throw new BadRequestError("Invalid file type");
+    }
+
+    // Cek ukuran file
+    const maxSize = 2 * 1024 * 1024; // 2MB
+    if (file.size > maxSize) {
+      throw new BadRequestError("File too large (max 2MB)");
+    }
+
+    const originalName = file.originalname;
+    const fileBuffer = file.buffer;
+    const ext = path.extname(originalName);
+    // buat key / nama objek di bucket
+    const objectKey = `uploads/${Date.now()}_${Math.random().toString(36).substr(2, 6)}${ext}`;
+
+    const taskImage = await addTaskImageService({
+      taskId,
+      imageTitle,
+      fileBuffer,
+      objectKey,
+      fileMimeType
+    });
+
+    return successResponse(res, "task created", taskImage, 201);
   } catch (error) {
     next(error);
   }
@@ -217,6 +267,23 @@ export const handleRestoreSoftDeletedTask = async (req, res, next) => {
     const taskId = req.params.taskId;
     const restoredTask = await restoreSoftDeletedTaskService({ userId, taskId });
     return successResponse(res, "success restoring deleted task", restoredTask);
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const handleDeleteTaskImage = async (req, res, next) => {
+  try {
+    const { imageId } = req.params;
+
+    if (!imageId) {
+      throw new BadRequestError({ message: 'imageId are required' });
+    }
+
+    // You should implement deleteTaskImageService in your service layer
+    await deleteTaskImageService(imageId);
+
+    return successResponse(res, "Task image deleted successfully");
   } catch (error) {
     next(error);
   }

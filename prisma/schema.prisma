@@ -72,12 +72,25 @@ model Tasks {
   deletedAt   DateTime? @map("deleted_at")
 
   //Relation
-  asignee ProjectMembers? @relation(fields: [asigneeId], references: [id])
-  project Projects        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  asignee    ProjectMembers? @relation(fields: [asigneeId], references: [id])
+  project    Projects        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  taskImages TaskImages[]
 
   @@index([projectId])
   @@index([asigneeId])
   @@index([completed])
+}
+
+model TaskImages {
+  id         String @id @default(uuid())
+  taskId     String @map("task_id")
+  imageTitle String @map("image_title")
+  // imageUrl   String @map("image_url")
+  bucketKey  String @map("bucket_key")
+  objectKey  String @map("object_key")
+
+  //Relation
+  task Tasks @relation(fields: [taskId], references: [id], onDelete: Cascade)
 }
 
 model Authentications {
