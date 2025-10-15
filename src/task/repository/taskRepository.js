@@ -1,7 +1,9 @@
 import prisma from "../../config/db.js";
 
 export const addTask = async (data) => {
-  return await prisma.tasks.create({ data });
+  return await prisma.tasks.create({
+    data,
+  },);
 };
 
 export const addTaskImage = async (data) => {
@@ -93,6 +95,12 @@ export const getTaskById = async (id, withDeleted) => {
     where,
     include: {
       taskImages: true,
+      asignee: {
+        select: {
+          userId: true,
+          role: true,
+        }
+      },
     }
     // include: {
     //   user: {
@@ -128,7 +136,17 @@ export const getTaskImageById = async (id) => {
 
 export const editTask = async (id, data) => {
   // console.log(`data : ${data}`);
-  return await prisma.tasks.update({ where: { id }, data });
+  return await prisma.tasks.update({
+    where: { id }, data, include: {
+      taskImages: true,
+      asignee: {
+        select: {
+          userId: true,
+          role: true,
+        }
+      },
+    }
+  });
 };
 
 export const softDeleteTask = async (id) => {

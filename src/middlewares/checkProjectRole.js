@@ -16,7 +16,7 @@ export const checkProjectRole = (allowedRoles = [], all = false) => {
     const projectId = req.params?.id || req.params?.projectId || req.body?.projectId;
     // || projectIdFromTask;
 
-    //console.log(`projectId : ${projectId}`);
+    console.log(`projectId : ${projectId}`);
 
     const project = (all) ? await getProjectByIdfromAll(projectId) : await getProjectById(projectId);
 
@@ -64,6 +64,10 @@ export const checkProjectRoleForTask = (allowedRoles = [], all = false) => {
     if (!allowedRoles.includes(member.role)) {
       return next(new ForbiddenError('You are not authorized to perform this action'));
     }
+
+    // save info task
+    req.taskProjectId = task.projectId;
+    req.asigneeUserId = task.asignee?.userId ?? null;
 
     // // save info role
     // req.projectRole = member.role;

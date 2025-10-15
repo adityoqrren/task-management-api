@@ -1,3 +1,4 @@
+import { is } from 'zod/locales';
 import { BadRequestError } from '../../exceptions/errors.js';
 import { makeError, successPaginationResponse, successResponse } from '../../utils/response.js';
 import { deleteTaskImage } from '../repository/taskRepository.js';
@@ -15,7 +16,8 @@ import {
   softDeleteTasksByProjectService,
   assignActiveTaskService,
   addTaskImageService,
-  deleteTaskImageService
+  deleteTaskImageService,
+  getAllTasksByUserIdService
 } from '../service/taskService.js';
 import path from 'path';
 
@@ -87,11 +89,13 @@ export const handlePostImageTask = async (req, res, next) => {
 export const handleAssignActiveTask = async (req, res, next) => {
   const { taskId } = req.params;
   const { memberId } = req.body;
+  const asigneeUserId = req.asigneeUserId;
+  const projectId = req.taskProjectId;
 
   console.log(`taskId : ${taskId} - memberId: ${memberId}`);
 
   try {
-    const result = await assignActiveTaskService({ taskId, memberId });
+    const result = await assignActiveTaskService({ taskId, projectId, asigneeUserId, memberId });
     return successResponse(res, "member has been assigned to task", {
       taskId: result.id,
       memberId: result.asigneeId,
@@ -141,30 +145,6 @@ export const handleGetAllUserTasks = async (req, res, next) => {
     const sortField = validSortFields.includes(sortBy) ? sortBy : 'createdAt';
     const sortOrder = validOrders.includes(order) ? order : 'desc';
 
-    // let select = undefined;
-
-    // if (fields) {
-    //   const allowedFields = ['id', 'title', 'description', 'completed', 'priority', 'createdAt', 'projectId'];
-    //   const fieldArray = fields.split(',').map((field) => field.trim());
-    //   // Validasi: hanya ambil field yang termasuk di allowedFields
-    //   const validFields = fieldArray.filter((field) => allowedFields.includes(field));
-
-    //   if (validFields.length > 0) {
-    //     select = {};
-    //     for (const field of validFields) {
-    //       select[field] = true;
-    //     }
-    //     console.log(`select ${JSON.stringify(select)} | sortField ${sortField}`)
-    //     if (!(sortField in select)) {
-    //       throw makeError("sort and selection fields not match", 404);
-    //     }
-    //     //retain createdAt
-    //     select["createdAt"] = true;
-    //   } else {
-    //     throw makeError("access denied", 404);
-    //   }
-    // }
-
     if (projectId) {
       filter.projectId = projectId;
     }
@@ -180,9 +160,22 @@ export const handleGetAllUserTasks = async (req, res, next) => {
       };
     }
 
-    const { tasks, totalTasks } = await getAllTasksService(status, { userId, page, limit, filter, sortBy: sortField, order: sortOrder });
+    //check if simple query for caching
+    const isSimpleQuery =
+      status === 'active' &&
+      !projectId &&
+      completed === undefined &&
+      !search &&
+      (!sortBy || sortBy === 'createdAt') &&
+      (!order || order === 'desc');
+
+    const queryParams = { userId, page, limit, filter, sortBy: sortField, order: sortOrder };
+    const { isFromCache, tasks, totalTasks } = await getAllTasksByUserIdService(isSimpleQuery, status, queryParams);
     const totalPages = (limit) ? Math.ceil(totalTasks / limit) : (totalTasks > 0) ? 1 : 0;
     if (totalPages > 0 && page > totalPages) throw new BadRequestError("Page is over from limit");
+    if (isFromCache) {
+      res.header('X-Data-Source', 'cache');
+    }
     return successPaginationResponse(res, null, tasks, {
       total: totalTasks,
       page: page,
@@ -226,12 +219,11 @@ export const handleGetTaskByIdFromAll = async (req, res, next) => {
 
 export const handleUpdateTask = async (req, res, next) => {
   try {
-    const userId = req.user.id;
+    // const userId = req.user.id;
     const taskId = req.params.taskId;
-    const updatedTask = await editTaskService({ userId, taskId, data: req.body });
-    // res.status(200).json({
-    //   message: "success updating task",
-    //   task: updatedTask });
+    const asigneeUserId = req.asigneeUserId;
+    // const projectId = req.taskProjectId;
+    const updatedTask = await editTaskService({ taskId, asigneeUserId, data: req.body });
     return successResponse(res, "success updating task", updatedTask);
   } catch (error) {
     next(error);
@@ -251,10 +243,12 @@ export const handleStatusUpdateTask = async (req, res, next) => {
 
 export const handleSoftDeleteTask = async (req, res, next) => {
   try {
-    const userId = req.user.id;
+    // const userId = req.user.id;
     const taskId = req.params.taskId;
+    const asigneeUserId = req.asigneeUserId;
+    const projectId = req.taskProjectId;
     // console.log(id);
-    await softDeleteTaskService({ userId, taskId });
+    await softDeleteTaskService({ taskId, asigneeUserId, projectId });
     return successResponse(res, "task success deleted")
   } catch (error) {
     next(error);
@@ -263,9 +257,9 @@ export const handleSoftDeleteTask = async (req, res, next) => {
 
 export const handleRestoreSoftDeletedTask = async (req, res, next) => {
   try {
-    const userId = req.user.id;
+    // const userId = req.user.id;
     const taskId = req.params.taskId;
-    const restoredTask = await restoreSoftDeletedTaskService({ userId, taskId });
+    const restoredTask = await restoreSoftDeletedTaskService(taskId);
     return successResponse(res, "success restoring deleted task", restoredTask);
   } catch (error) {
     next(error);

@@ -18,7 +18,8 @@ export const addNewProjectService = async ({ name, userId }) => {
     })
 
     return {
-        projectId: project.id
+        projectId: project.id,
+        name: project.name,
     };
 };
 

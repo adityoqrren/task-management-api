@@ -5,17 +5,17 @@ import { getProjectMemberByMemberIdService, getProjectMembersService } from "../
 import { makeError } from "../../utils/response.js";
 import { bulkMarkTasksCompleted, bulkSoftDeleteTasks, addTask, deleteTask, findValidTasksByIds, getAllTasks, getTaskById, softDeleteTask, editTask, softDeleteTasksByProjectId, restoreSoftDeletedTasksByProjectId, addTaskImage, getTaskImageById, deleteTaskImage } from "../repository/taskRepository.js";
 import StorageService from "../../storage/storageService.js";
+import CacheService from "../../cache/cacheService.js";
 
 const storageService = new StorageService();
+const redisClient = new CacheService();
 
 export const addTaskService = async (data) => {
-  // // Invalidate cache: delete cache
-  // const deleteOnRedis = await redis.del(
-  //     `tasks:${data.userId}`,
-  // );
-  // const deleteOnRedis2 = await redis.del(`tasks:${data.userId}:${data.projectId}`);
-  // console.log(`deleted data on redis : ${deleteOnRedis} - ${deleteOnRedis2}`);
-  return await addTask(data);
+  const addedTask = await addTask(data);
+
+  //TODO: invalidate project task
+
+  return addedTask;
 };
 
 export const addTaskImageService = async ({ taskId, imageTitle, fileBuffer, objectKey, fileMimeType }) => {
@@ -41,29 +41,53 @@ export const addTaskImageService = async ({ taskId, imageTitle, fileBuffer, obje
   }
 };
 
+//TODO: if getAllTasksByProjectIdService and getAllTasksByUserIdService have many similar code, refactor it
 export const getAllTasksService = async (status, queryParams) => {
   const { tasks, totalTasks } = await getAllTasks(status, queryParams);
 
   return { tasks, totalTasks };
 };
 
+export const getAllTasksByProjectIdService = async (isSimpleQuery, status, queryParams) => {
+
+}
+
+export const getAllTasksByUserIdService = async (isSimpleQuery, status, queryParams) => {
+  const { userId, page, limit } = queryParams;
+  const cacheKey = `tasks:user:${userId}:page:${page}:limit:${limit}`;
+  const cacheGroupKey = `tasks_cache_group:user:${userId}`;
+  if (isSimpleQuery) {
+    const cached = await redisClient.get(cacheKey);
+    console.log(`isSimpleQuery: ${isSimpleQuery}`);
+
+    if (cached) {
+      console.log('🟢 Cache hit:', cacheKey);
+      const { tasks, totalTasks } = JSON.parse(cached);
+      return { isFromCache: true, tasks, totalTasks };
+    }
+  }
+
+  const { tasks, totalTasks } = await getAllTasks(status, queryParams);
+
+  if (isSimpleQuery) {
+    console.log('🔴 Cache miss:', cacheKey);
+    //send to user task cache
+    await redisClient.set(cacheKey, JSON.stringify({ tasks, totalTasks }), 60); // Cache for 60 seconds
+    //save to cache group
+    await redisClient.saveToCacheGroup(cacheGroupKey, cacheKey);
+  }
+
+  return { isFromCache: false, tasks, totalTasks };
+
+}
+
 export const getTaskByIdService = async ({ taskId, withDeleted }) => {
   const task = await getTaskById(taskId, withDeleted);
   if (!task) throw new NotFoundError('Task not found');
   const { id, asigneeId: picId, taskImages, ...rest } = task;
   const storageService = new StorageService();
-  //TODO: we have to generate url for each task images
 
-  // console.log(taskImages[0]);
-
-  // const forTesting = await storageService.createPreSignedUrl({
-  //   bucket: taskImages[0].bucketKey,
-  //   key: taskImages[0].objectKey,
-  // });
-
-  // console.log(forTesting);
-
-  const taskImagesWithUrl = await Promise.all(taskImages.map(async(taskImage) => {
+  const taskImagesWithUrl = await Promise.all(taskImages.map(async (taskImage) => {
     const imageUrl = await storageService.createPreSignedUrl({
       bucket: taskImage.bucketKey,
       key: taskImage.objectKey,
@@ -78,7 +102,7 @@ export const getTaskByIdService = async ({ taskId, withDeleted }) => {
     taskId: id,
     picId,
     ...rest,
-    taskImages : taskImagesWithUrl
+    taskImages: taskImagesWithUrl
   };
 };
 
@@ -88,28 +112,62 @@ export const getTaskByIdWithDeletedDataService = async (userId, id) => {
   return task;
 };
 
-export const assignActiveTaskService = async ({ taskId, memberId }) => {
-  const task = await getTaskById(taskId);
-  if (!task) throw new NotFoundError('Task not found');
-  if (memberId) {
-    const member = await getProjectMemberByMemberIdService({ projectId: task.projectId, memberId });
+export const assignActiveTaskService = async ({ taskId, projectId, asigneeUserId, memberId }) => {
+  // const taskExisting = await getTaskById(taskId);
+  // if (!taskExisting) throw new NotFoundError('Task not found');
+  const affectedUsers = new Set();
+
+  if (asigneeUserId != null) {
+    affectedUsers.add(asigneeUserId);
   }
-  return await editTask(taskId, {
+  if (memberId) {
+    // check if memberId is id of member in task's project
+    const { userId: newAsigneeUserId } = await getProjectMemberByMemberIdService({ projectId, memberId });
+    if (newAsigneeUserId != asigneeUserId) {
+      affectedUsers.add(newAsigneeUserId);
+    }
+  }
+
+  const editedTask = await editTask(taskId, {
     asigneeId: memberId
   });
+
+  //invalidate user cache for both (asignee or new asignee)
+  for (const userId of affectedUsers) {
+    const cacheGroupKey = `tasks_cache_group:user:${userId}`;
+    const keys = await redisClient.getCacheGroup(cacheGroupKey);
+    if (keys.length) {
+      await redisClient.delete(keys); // hapus semua cache task list user
+      await redisClient.delete(cacheGroupKey); // bersihkan set-nya juga
+    }
+  }
+
+  //TODO: invalidate project task
+
+  return editedTask;
+
 }
 
-export const editTaskService = async ({ userId, taskId, data }) => {
+export const editTaskService = async ({ taskId, asigneeUserId, data }) => {
   // console.log(`ini user id : ${userId}`)
   // console.log(`ini params id : ${id}`)
+  // const taskExisting = await getTaskById(taskId, false)
+  // const existingUserId = taskExisting.asignee?.userId ?? null;
+
   const taskEdited = await editTask(taskId, data);
-  // Invalidate cache: delete cache
-  //console.log(`tasks:${updatedTask.userId}:${updatedTask.projectId}`);
-  // const deleteOnRedis = await redis.del(
-  //   `tasks:${updatedTask.userId}`,
-  // );
-  // const deleteOnRedis2 = await redis.del(`tasks:${updatedTask.userId}:${updatedTask.projectId}`);
-  // console.log(`deleted data on redis : ${deleteOnRedis} - ${deleteOnRedis2}`);
+
+  //invalidate user cache
+  if (asigneeUserId) {
+    const cacheGroupKey = `tasks_cache_group:user:${asigneeUserId}`;
+    const keys = await redisClient.getCacheGroup(cacheGroupKey);
+    if (keys.length) {
+      await redisClient.delete(keys); // hapus semua cache task list user
+      await redisClient.delete(cacheGroupKey); // bersihkan set-nya juga
+    }
+  }
+
+  //TODO: invalidate project task
+
   const { projectId, title, description, asigneeId: picId, completed } = taskEdited;
   return {
     taskId,
@@ -121,8 +179,22 @@ export const editTaskService = async ({ userId, taskId, data }) => {
   };
 };
 
-export const softDeleteTaskService = async ({ userId, taskId }) => {
-  return await softDeleteTask(taskId);
+export const softDeleteTaskService = async ({ taskId, asigneeUserId, projectId }) => {
+  const softDeletedTask = await softDeleteTask(taskId);
+
+  //invalidate user cache
+  if (asigneeUserId) {
+    const cacheGroupKey = `tasks_cache_group:user:${asigneeUserId}`;
+    const keys = await redisClient.getCacheGroup(cacheGroupKey);
+    if (keys.length) {
+      await redisClient.delete(keys); // hapus semua cache task list user
+      await redisClient.delete(cacheGroupKey); // bersihkan set-nya juga
+    }
+  }
+
+  //TODO : invalidate project task
+
+  return softDeletedTask;
 };
 
 export const softDeleteTasksByProjectService = async (projectId) => {
@@ -130,10 +202,12 @@ export const softDeleteTasksByProjectService = async (projectId) => {
   if (result == 0) {
     throw BadRequestError("Failed to delete tasks of this project");
   }
+  //TODO : invalidate cache related to asignee of each task
+  //TODO : invalidate project task
   return result;
 };
 
-export const restoreSoftDeletedTaskService = async ({ userId, taskId }) => {
+export const restoreSoftDeletedTaskService = async (taskId) => {
   // console.log(`ini user id : ${userId}`)
   // console.log(`ini params id : ${id}`)
   const existing = await getTaskById(taskId, true)
@@ -151,6 +225,17 @@ export const restoreSoftDeletedTaskService = async ({ userId, taskId }) => {
   }
   //console.log(`data: ${data.asigneeId}`);
   const updatedTask = await editTask(taskId, data);
+
+  //invalidate user cache
+  if (projectMember.isActive) {
+    const cacheGroupKey = `tasks_cache_group:user:${projectMember.userId}`;
+    const keys = await redisClient.getCacheGroup(cacheGroupKey);
+    if (keys.length) {
+      await redisClient.delete(keys); // hapus semua cache task list user
+      await redisClient.delete(cacheGroupKey); // bersihkan set-nya juga
+    }
+  }
+
   return updatedTask;
 };
 
@@ -162,7 +247,7 @@ export const restoreSoftDeletedTasksByProjectIdService = async ({ userId, projec
   return totalTasks;
 }
 
-export const deleteTaskImageService = async(imageId) => {
+export const deleteTaskImageService = async (imageId) => {
   const existing = await getTaskImageById(imageId);
   if (!existing) throw new NotFoundError('Image not found');
   const deleteFromBucket = await storageService.deleteFile(existing.objectKey);
@@ -188,7 +273,7 @@ export const deleteTaskService = async ({ userId, taskId }) => {
 };
 
 
-
+/*-------------Bulk Operations----------------*/
 
 export const bulkSoftDeleteTasksService = async (userId, taskIds) => {
   const result = await bulkSoftDeleteTasks(userId, taskIds);
