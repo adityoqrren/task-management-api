@@ -1,5 +1,5 @@
 import { BadRequestError } from '../../exceptions/errors.js';
-import { getAllTasksService } from '../../task/service/taskService.js';
+import { getAllTasksByProjectIdService, getAllTasksService } from '../../task/service/taskService.js';
 import { successPaginationResponse, successResponse } from '../../utils/response.js';
 import { addProjectMemberService, addNewProjectService, deleteProjectService, getAllUserProjectsService, getProjectByIdService, getProjectMembersService, updateActiveProjectMemberService, editProjectService, softDeleteProjectService, getProjectByIdFromAllService, getAllUserProjectsFromAllService, restoreSoftDeletedProjectService } from '../service/projectService.js';
 
@@ -182,7 +182,7 @@ export const handleGetProjectTasks = async (req, res, next) => {
 
         const { status = 'active', userId, completed, search, sortBy, order } = req.query;
 
-        console.log(`userId : ${userId}`);
+        //console.log(`userId : ${userId}`);
 
         const limit = parseInt(req.query.limit, 10) || 0;
         const page = parseInt(req.query.page, 10) || 1;
@@ -210,11 +210,23 @@ export const handleGetProjectTasks = async (req, res, next) => {
             };
         }
 
+        //check if simple query for caching
+        const isSimpleQuery =
+            status === 'active' &&
+            !userId &&
+            completed === undefined &&
+            !search &&
+            (!sortBy || sortBy === 'createdAt') &&
+            (!order || order === 'desc');
+
         const queryParams = { userId, page, limit, filter, sortBy: sortField, order: sortOrder };
 
-        const { tasks, totalTasks } = await getAllTasksService(status, queryParams);
-        const totalPages = Math.ceil(totalTasks / limit);
-        if (page > totalPages) throw new BadRequestError("Page is over from limit");
+        const { isFromCache, tasks, totalTasks } = await getAllTasksByProjectIdService(isSimpleQuery, status, queryParams);
+        const totalPages = (limit) ? Math.ceil(totalTasks / limit) : (totalTasks > 0) ? 1 : 0;
+        if (totalPages > 0 && page > totalPages) throw new BadRequestError("Page is over from limit");
+        if (isFromCache) {
+            res.header('X-Data-Source', 'cache');
+        }
         return successPaginationResponse(res, null, tasks, {
             total: totalTasks,
             page: page,

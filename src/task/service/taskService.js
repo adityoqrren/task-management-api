@@ -14,6 +14,12 @@ export const addTaskService = async (data) => {
   const addedTask = await addTask(data);
 
   //TODO: invalidate project task
+  const cacheGroupKey = `project_cache_group:project:${addedTask.projectId}:tasks`;
+  const keys = await redisClient.getCacheGroup(cacheGroupKey);
+  if (keys.length) {
+    await redisClient.delete(keys); // hapus semua cache project list
+    await redisClient.delete(cacheGroupKey); // bersihkan set-nya juga
+  }
 
   return addedTask;
 };
@@ -49,7 +55,32 @@ export const getAllTasksService = async (status, queryParams) => {
 };
 
 export const getAllTasksByProjectIdService = async (isSimpleQuery, status, queryParams) => {
+  const { page, limit } = queryParams;
+  const projectId = queryParams.filter.projectId;
+  const cacheKey = `tasks:project:${projectId}:tasks:page:${page}:limit:${limit}`;
+  const cacheGroupKey = `project_cache_group:project:${projectId}:tasks`;
+  if (isSimpleQuery) {
+    const cached = await redisClient.get(cacheKey);
+    console.log(`isSimpleQuery: ${isSimpleQuery}`);
 
+    if (cached) {
+      console.log('🟢 Cache hit:', cacheKey);
+      const { tasks, totalTasks } = JSON.parse(cached);
+      return { isFromCache: true, tasks, totalTasks };
+    }
+  }
+
+  const { tasks, totalTasks } = await getAllTasks(status, queryParams);
+
+  if (isSimpleQuery) {
+    console.log('🔴 Cache miss:', cacheKey);
+    //send to user task cache
+    await redisClient.set(cacheKey, JSON.stringify({ tasks, totalTasks }), 60); // Cache for 60 seconds
+    //save to cache group
+    await redisClient.saveToCacheGroup(cacheGroupKey, cacheKey);
+  }
+
+  return { isFromCache: false, tasks, totalTasks };
 }
 
 export const getAllTasksByUserIdService = async (isSimpleQuery, status, queryParams) => {
@@ -143,6 +174,12 @@ export const assignActiveTaskService = async ({ taskId, projectId, asigneeUserId
   }
 
   //TODO: invalidate project task
+  const cacheGroupKey = `project_cache_group:project:${projectId}:tasks`;
+  const keys = await redisClient.getCacheGroup(cacheGroupKey);
+  if (keys.length) {
+    await redisClient.delete(keys); // hapus semua cache project list
+    await redisClient.delete(cacheGroupKey); // bersihkan set-nya juga
+  }
 
   return editedTask;
 
@@ -166,9 +203,16 @@ export const editTaskService = async ({ taskId, asigneeUserId, data }) => {
     }
   }
 
-  //TODO: invalidate project task
-
   const { projectId, title, description, asigneeId: picId, completed } = taskEdited;
+
+  //TODO: invalidate project task
+  const cacheGroupKey = `project_cache_group:project:${projectId}:tasks`;
+  const keys = await redisClient.getCacheGroup(cacheGroupKey);
+  if (keys.length) {
+    await redisClient.delete(keys); // hapus semua cache project list
+    await redisClient.delete(cacheGroupKey); // bersihkan set-nya juga
+  }
+
   return {
     taskId,
     projectId,
@@ -192,7 +236,13 @@ export const softDeleteTaskService = async ({ taskId, asigneeUserId, projectId }
     }
   }
 
-  //TODO : invalidate project task
+  //TODO: invalidate project task
+  const cacheGroupKey = `project_cache_group:project:${projectId}:tasks`;
+  const keys = await redisClient.getCacheGroup(cacheGroupKey);
+  if (keys.length) {
+    await redisClient.delete(keys); // hapus semua cache project list
+    await redisClient.delete(cacheGroupKey); // bersihkan set-nya juga
+  }
 
   return softDeletedTask;
 };
@@ -234,6 +284,14 @@ export const restoreSoftDeletedTaskService = async (taskId) => {
       await redisClient.delete(keys); // hapus semua cache task list user
       await redisClient.delete(cacheGroupKey); // bersihkan set-nya juga
     }
+  }
+
+  //TODO: invalidate project task
+  const cacheGroupKey = `project_cache_group:project:${updatedTask.projectId}:tasks`;
+  const keys = await redisClient.getCacheGroup(cacheGroupKey);
+  if (keys.length) {
+    await redisClient.delete(keys); // hapus semua cache project list
+    await redisClient.delete(cacheGroupKey); // bersihkan set-nya juga
   }
 
   return updatedTask;
