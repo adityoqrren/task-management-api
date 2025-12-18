@@ -158,7 +158,15 @@ export const getProjectMemberByUserId = async (projectId, userId) => {
 
 export const getProjectMemberByMemberId = async (projectId, id) => {
     return await prisma.projectMembers.findFirst({
-        where: { projectId, id }
+        where: { projectId, id },
+        include: {
+            user: {
+                select: {
+                    username: true,
+                    email: true,
+                }
+            }
+        }
     });
 }
 

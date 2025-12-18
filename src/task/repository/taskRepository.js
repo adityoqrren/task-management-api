@@ -23,7 +23,7 @@ export const getAllTasks = async (status, { userId, page, limit, filter = {}, so
   };
 
   if (userId) {
-    where.asignee = {
+    where.assignee = {
       is: {
         userId,
         isActive: true,
@@ -76,7 +76,7 @@ export const getAllTasks = async (status, { userId, page, limit, filter = {}, so
     projectId: res.projectId,
     title: res.title,
     description: res.description,
-    picId: res.asigneeId,
+    picId: res.assigneeId,
     completed: res.completed
   }));
 
@@ -95,10 +95,15 @@ export const getTaskById = async (id, withDeleted) => {
     where,
     include: {
       taskImages: true,
-      asignee: {
+      assignee: {
         select: {
           userId: true,
           role: true,
+          user: {
+            select: {
+              email: true,
+            }
+          }
         }
       },
     }
@@ -139,11 +144,16 @@ export const editTask = async (id, data) => {
   return await prisma.tasks.update({
     where: { id }, data, include: {
       taskImages: true,
-      asignee: {
+      assignee: {
         select: {
           userId: true,
           role: true,
-        }
+          user: {
+            select: {
+              email: true,
+            }
+          }
+        },
       },
     }
   });

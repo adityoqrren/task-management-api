@@ -67,7 +67,8 @@ export const checkProjectRoleForTask = (allowedRoles = [], all = false) => {
 
     // save info task
     req.taskProjectId = task.projectId;
-    req.asigneeUserId = task.asignee?.userId ?? null;
+    req.assigneeUserId = task.assignee?.userId ?? null;
+    req.assigneeEmail = task.assignee?.user?.email ?? null;
 
     // // save info role
     // req.projectRole = member.role;
@@ -102,8 +103,8 @@ export const checkProjectRoleForUpdateStatusTask = (allowedRoles = [], all = fal
       return next(new ForbiddenError('You are not authorized to perform this action'));
     }
 
-    //check if MEMBER is asignee to the task
-    if (member.role == "MEMBER" && userId != task.asigneeId) {
+    //check if MEMBER is assignee to the task
+    if (member.role == "MEMBER" && userId != task.assigneeId) {
       return next(new ForbiddenError('You are not authorized to perform this action'));
     }
 

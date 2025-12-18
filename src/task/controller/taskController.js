@@ -87,18 +87,20 @@ export const handlePostImageTask = async (req, res, next) => {
 };
 
 export const handleAssignActiveTask = async (req, res, next) => {
+  const ownerEmail = req.user.email;
   const { taskId } = req.params;
   const { memberId } = req.body;
-  const asigneeUserId = req.asigneeUserId;
+  const assigneeUserId = req.assigneeUserId;
+  const assigneeEmail = req.assigneeEmail;
   const projectId = req.taskProjectId;
 
   console.log(`taskId : ${taskId} - memberId: ${memberId}`);
 
   try {
-    const result = await assignActiveTaskService({ taskId, projectId, asigneeUserId, memberId });
+    const result = await assignActiveTaskService({ taskId, projectId, ownerEmail, assigneeUserId, assigneeEmail, memberId });
     return successResponse(res, "member has been assigned to task", {
       taskId: result.id,
-      memberId: result.asigneeId,
+      memberId: result.assigneeId,
     })
   } catch (error) {
     next(error);
@@ -170,7 +172,7 @@ export const handleGetAllUserTasks = async (req, res, next) => {
       (!order || order === 'desc');
 
     const queryParams = { userId, page, limit, filter, sortBy: sortField, order: sortOrder };
-    const { isFromCache, tasks, totalTasks } = await getAllTasksByUserIdService(isSimpleQuery, status, queryParams);
+    const { isFromCache, tasks, totalTasks } = await getAllTasksByUserIdService({ isSimpleQuery, status, queryParams });
     const totalPages = (limit) ? Math.ceil(totalTasks / limit) : (totalTasks > 0) ? 1 : 0;
     if (totalPages > 0 && page > totalPages) throw new BadRequestError("Page is over from limit");
     if (isFromCache) {
@@ -219,11 +221,11 @@ export const handleGetTaskByIdFromAll = async (req, res, next) => {
 
 export const handleUpdateTask = async (req, res, next) => {
   try {
-    // const userId = req.user.id;
+    const ownerEmail = req.user.email;
     const taskId = req.params.taskId;
-    const asigneeUserId = req.asigneeUserId;
+    const assigneeUserId = req.assigneeUserId;
     // const projectId = req.taskProjectId;
-    const updatedTask = await editTaskService({ taskId, asigneeUserId, data: req.body });
+    const updatedTask = await editTaskService({ taskId, ownerEmail, assigneeUserId, data: req.body });
     return successResponse(res, "success updating task", updatedTask);
   } catch (error) {
     next(error);
@@ -245,10 +247,10 @@ export const handleSoftDeleteTask = async (req, res, next) => {
   try {
     // const userId = req.user.id;
     const taskId = req.params.taskId;
-    const asigneeUserId = req.asigneeUserId;
+    const assigneeUserId = req.assigneeUserId;
     const projectId = req.taskProjectId;
     // console.log(id);
-    await softDeleteTaskService({ taskId, asigneeUserId, projectId });
+    await softDeleteTaskService({ taskId, assigneeUserId, projectId });
     return successResponse(res, "task success deleted")
   } catch (error) {
     next(error);
