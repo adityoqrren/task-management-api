@@ -1,0 +1,56 @@
+import express from 'express';
+import {
+  handleAssignActiveTask,
+  handleDeleteTask,
+  handleDeleteTaskImage,
+  handleGetAllUserTasks,
+  handleGetTaskById,
+  handleGetTaskByIdFromAll,
+  handlePostImageTask,
+  handlePostTask,
+  handleRestoreSoftDeletedTask,
+  handleSoftDeleteTask,
+  handleStatusUpdateTask,
+  handleUpdateTask,
+  // handleGetTaskById,
+  // handleUpdateTask,
+  // handleDeleteTask,
+  // handleSoftDeleteTask,
+  // handleGetTaskByIdFromAll,
+  // handleGetActiveTasks,
+  // handleGetAllTasksIncludingDeleted,
+  // handleRestoreSoftDeletedTask,
+  // handleBulkSoftDeleteTasks,
+  // handleBulkMarkTasksCompleted,
+  // handleAssignActiveTask
+} from '../task/controller/taskController.js';
+import { authenticate } from '../../shared/middlewares/authMiddlewares.js';
+// import { cacheTasks } from '../../shared/middlewares/caching.js';
+import { apiLimiter } from '../../shared/middlewares/rateLimiter.js';
+import { checkProjectRole, checkProjectRoleForTask, checkProjectRoleForUpdateStatusTask } from '../../shared/middlewares/checkProjectRole.js';
+import { validateRequest } from '../../shared/middlewares/validateRequest.js';
+import { assignTaskSchema, updateTaskSchema, updateTaskStatusSchema, postTaskSchema, postTaskImageSchema } from './taskValidation.js';
+import multer from 'multer';
+
+const router = express.Router();
+const upload = multer({ storage: multer.memoryStorage() });  // simpan file in memory buffer before processing
+
+router.use(authenticate);
+// router.use(apiLimiter);
+
+router.post('/', validateRequest(postTaskSchema), checkProjectRole(['LEADER']), handlePostTask);
+router.post('/:taskId/image', checkProjectRoleForTask(['LEADER','MEMBER']), upload.single('imageFile'), validateRequest(postTaskImageSchema), handlePostImageTask);
+router.delete('/:taskId/image/:imageId', checkProjectRoleForTask(['LEADER','MEMBER']), upload.single('imageFile'), handleDeleteTaskImage );
+router.get('/me', handleGetAllUserTasks);
+router.patch('/:taskId/assign', validateRequest(assignTaskSchema), checkProjectRoleForTask(['LEADER']), handleAssignActiveTask);
+router.get('/:taskId', checkProjectRoleForTask(['LEADER','MEMBER']), handleGetTaskById);
+router.get('/all/:taskId', checkProjectRoleForTask(['LEADER','MEMBER'], true), handleGetTaskByIdFromAll);
+// router.patch('/bulk-soft-delete', handleBulkSoftDeleteTasks);
+// router.patch('/bulk-complete', authenticate, handleBulkMarkTasksCompleted);
+router.patch('/restore/:taskId', checkProjectRoleForTask(['LEADER'], true), handleRestoreSoftDeletedTask);
+router.patch('/:taskId/soft-delete', checkProjectRoleForTask(['LEADER']), handleSoftDeleteTask);
+router.patch('/:taskId/completed', validateRequest(updateTaskStatusSchema), checkProjectRoleForUpdateStatusTask(['LEADER', 'MEMBER']), handleStatusUpdateTask);
+router.patch('/:taskId', validateRequest(updateTaskSchema), checkProjectRoleForTask(['LEADER']), handleUpdateTask);
+router.delete('/:taskId', checkProjectRoleForTask(['LEADER'], true), handleDeleteTask);
+
+export default router;

@@ -65,14 +65,14 @@ model Tasks {
   title       String
   description String?
   completed   Boolean   @default(false)
-  assigneeId   String?   @map("assignee_id")
+  assigneeId  String?   @map("assignee_id")
   projectId   String    @map("project_id")
   createdAt   DateTime  @default(now()) @map("created_at")
   updatedAt   DateTime  @updatedAt @map("updated_at")
   deletedAt   DateTime? @map("deleted_at")
 
   //Relation
-  assignee    ProjectMembers? @relation(fields: [assigneeId], references: [id])
+  assignee   ProjectMembers? @relation(fields: [assigneeId], references: [id])
   project    Projects        @relation(fields: [projectId], references: [id], onDelete: Cascade)
   taskImages TaskImages[]
 
@@ -98,6 +98,55 @@ model Authentications {
   token String
 
   @@index([token])
+}
+
+model Notifications {
+  id String @id @default(uuid())
+
+  eventId String @unique
+  type    String
+
+  recipientId String
+  actorId     String
+
+  title   String
+  message String
+
+  entityType String?
+  entityId   String?
+
+  projectId String?
+
+  isRead Boolean @default(false)
+
+  createdAt DateTime @default(now())
+
+  @@index([recipientId, createdAt(sort: Desc)])
+  @@index([recipientId, isRead])
+}
+
+model ActivityLogs {
+  id      String @id @default(uuid())
+  eventId String @unique
+
+  type String
+
+  actorId      String
+  targetUserId String?
+
+  entityType String
+  entityId   String
+
+  projectId String
+
+  message String
+
+  createdAt DateTime @default(now())
+
+  @@index([projectId, createdAt])
+  @@index([actorId])
+  @@index([targetUserId])
+  @@index([type])
 }
 
 enum ProjectRole {
