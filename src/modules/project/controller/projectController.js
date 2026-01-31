@@ -1,7 +1,7 @@
 import { BadRequestError } from '../../../exceptions/errors.js';
 import { getAllTasksByProjectIdService, getAllTasksService } from '../../task/service/taskService.js';
 import { successPaginationResponse, successResponse } from '../../../shared/utils/response.js';
-import { addProjectMemberService, addNewProjectService, deleteProjectService, getAllUserProjectsService, getProjectByIdService, getProjectMembersService, updateActiveProjectMemberService, editProjectService, softDeleteProjectService, getProjectByIdFromAllService, getAllUserProjectsFromAllService, restoreSoftDeletedProjectService } from '../service/projectService.js';
+import { addProjectMemberService, addNewProjectService, deleteProjectService, getAllUserProjectsService, getProjectByIdService, getProjectMembersService, updateActiveProjectMemberService, editProjectService, softDeleteProjectService, getProjectByIdFromAllService, restoreSoftDeletedProjectService } from '../service/projectService.js';
 
 export const handlePostProject = async (req, res, next) => {
     try {
@@ -64,15 +64,16 @@ export const handleGetProjects = async (req, res, next) => {
     }
 };
 
-export const handleGetProjectsFromAll = async (req, res, next) => {
-    try {
-        const userId = req.user.id;
-        const projects = await getAllUserProjectsFromAllService(userId);
-        return successResponse(res, null, projects);
-    } catch (err) {
-        next(err);
-    }
-};
+// TODO: Review this function because seems no more purpose
+// export const handleGetProjectsFromAll = async (req, res, next) => {
+//     try {
+//         const userId = req.user.id;
+//         const projects = await getAllUserProjectsFromAllService(userId);
+//         return successResponse(res, null, projects);
+//     } catch (err) {
+//         next(err);
+//     }
+// };
 
 export const handleGetProjectMembers = async (req, res, next) => {
     try {

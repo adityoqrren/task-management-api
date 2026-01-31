@@ -1,5 +1,5 @@
 import { Prisma, ProjectRole } from '@prisma/client';
-import { addProject, getProjectsByUserId, getProjectById, editProject, deleteProject, addProjectMember, editProjectMemberById, getAllProjectMembers, updateProjectMemberByProjectUserId, softDeleteProject, getProjectByIdfromAll, getProjectMemberByMemberId, getProjectMemberByUserId } from '../repository/projectRepository.js';
+import { addProject, getProjectsByUserId, getProjectById, editProject, deleteProject, addProjectMember, editProjectMemberById, getAllProjectMembers, updateProjectMemberByProjectUserId, softDeleteProject, getProjectByIdfromAll, getProjectMemberByMemberId, getProjectMemberByUserId, getProjectsByIds } from '../repository/projectRepository.js';
 import { getUserByIdService, getUserByNameOrUsernameService } from '../../user/service/userService.js';
 import { BadRequestError, ForbiddenError, NotFoundError } from '../../../exceptions/errors.js';
 import { getAllTasksService, restoreSoftDeletedTasksByProjectIdService, softDeleteTasksByProjectService } from '../../task/service/taskService.js';
@@ -132,13 +132,14 @@ export const getAllUserProjectsService = async (status, queryParams) => {
     return { projects, totalProjects };
 };
 
-export const getAllUserProjectsFromAllService = async (userId) => {
-    const checkUser = await getUserById(userId);
-    if (!checkUser) throw new NotFoundError("User with this user id is not found");
+// TODO: Review this function because seems no more purpose
+// export const getAllUserProjectsFromAllService = async (userId) => {
+//     const checkUser = await getUserById(userId);
+//     if (!checkUser) throw new NotFoundError("User with this user id is not found");
 
-    const projects = await getProjectsByUserId(userId, true);
-    return projects;
-};
+//     const projects = await getProjectsByUserId(userId, true);
+//     return projects;
+// };
 
 
 export const getProjectByIdService = async ({ projectId, userId }) => {
@@ -152,6 +153,13 @@ export const getProjectByIdFromAllService = async ({ projectId, userId }) => {
     const project = await getProjectByIdfromAll(projectId)
     if (!project) throw new NotFoundError('Project not found')
     if (project.owner !== userId) throw new ForbiddenError("You are not a member of this project")
+    return project
+}
+
+// bulk operation for getting projects by ids
+export const getProjectsByIdsService = async ({ projectIds, withDeleted = false }) => {
+    const project = await getProjectsByIds(projectIds, withDeleted)
+    if (!project) throw new NotFoundError('Project not found')
     return project
 }
 

@@ -1,6 +1,6 @@
 import express from 'express';
 import { authenticate } from '../../shared/middlewares/authMiddlewares.js';
-import { handleAddProjectMember, handlePostProject, handleDeleteProject, handleGetProjectById, handleGetProjectMembers, handleGetProjects, handleUpdateProject, handleUpdateActiveProjectMember, handleSoftDeleteProject, handleGetProjectByIdFromAll, handleGetProjectsFromAll, handleGetProjectTasks, handleRestoreSoftDeletedProject } from './controller/projectController.js';
+import { handleAddProjectMember, handlePostProject, handleDeleteProject, handleGetProjectById, handleGetProjectMembers, handleGetProjects, handleUpdateProject, handleUpdateActiveProjectMember, handleSoftDeleteProject, handleGetProjectByIdFromAll, handleGetProjectTasks, handleRestoreSoftDeletedProject } from './controller/projectController.js';
 import { checkProjectRole } from '../../shared/middlewares/checkProjectRole.js';
 import { validateRequest } from '../../shared/middlewares/validateRequest.js';
 import { postMemberSchema, postProjectSchema, updateMemberActiveStatusSchema } from './projectValidation.js';;
@@ -11,7 +11,7 @@ router.use(authenticate);
 
 router.post('/', validateRequest(postProjectSchema), handlePostProject);
 router.get('/', handleGetProjects);
-router.get('/all', handleGetProjectsFromAll);
+// router.get('/all', handleGetProjectsFromAll);
 router.get('/all/:id', handleGetProjectByIdFromAll);
 router.get('/:id', handleGetProjectById);
 router.patch('/:id', validateRequest(postProjectSchema), handleUpdateProject);

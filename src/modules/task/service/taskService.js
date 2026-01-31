@@ -3,7 +3,7 @@
 import { BadRequestError, NotFoundError } from "../../../exceptions/errors.js";
 import { getProjectMemberByMemberIdService, getProjectMembersService } from "../../project/service/projectService.js";
 import { makeError } from "../../../shared/utils/response.js";
-import { bulkMarkTasksCompleted, bulkSoftDeleteTasks, addTask, deleteTask, findValidTasksByIds, getAllTasks, getTaskById, softDeleteTask, editTask, softDeleteTasksByProjectId, restoreSoftDeletedTasksByProjectId, addTaskImage, getTaskImageById, deleteTaskImage } from "../repository/taskRepository.js";
+import { bulkMarkTasksCompleted, bulkSoftDeleteTasks, addTask, deleteTask, findValidTasksByIds, getAllTasks, getTaskById, softDeleteTask, editTask, softDeleteTasksByProjectId, restoreSoftDeletedTasksByProjectId, addTaskImage, getTaskImageById, deleteTaskImage, getTasksByIds } from "../repository/taskRepository.js";
 import StorageService from "../../../storage/storageService.js";
 import CacheService from "../../../cache/cacheService.js";
 import { sendEmailMessage } from "../../../queue/emailProducer.js";
@@ -147,6 +147,10 @@ export const getTaskByIdService = async ({ taskId, withDeleted }) => {
     taskImages: taskImagesWithUrl
   };
 };
+
+export const getTasksByIdsService = async ({taskIds, withDeleted}) => {
+  return await getTasksByIds(taskIds, withDeleted);
+}
 
 export const getTaskByIdWithDeletedDataService = async (userId, id) => {
   const task = await getTaskById(id, true);

@@ -49,15 +49,18 @@ export const handleGetTaskActivityLogs = async (req, res, next) => {
 export const handleGetUserActivityLogs = async (req, res, next) => {
   try {
     const userId = req.user.id;
-    const { cursor, limit } = req.query;
+    const { cursor } = req.query;
+    const limit = parseInt(req.query.limit, 10) || 20;
 
     const result = await getUserActivityLogsService({
       userId,
       cursor,
-      limit: limit ? Number(limit) : undefined
+      limit,
     });
 
-    res.json(result);
+    return successPaginationResponse(res, null, result.data, {
+      limit, nextCursor: result.nextCursor,
+    });
   } catch (err) {
     next(err);
   }

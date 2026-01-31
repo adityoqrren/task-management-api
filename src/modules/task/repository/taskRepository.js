@@ -107,25 +107,17 @@ export const getTaskById = async (id, withDeleted) => {
         }
       },
     }
-    // include: {
-    //   user: {
-    //     select: {
-    //       id: true,
-    //       name: true,
-    //       email: true
-    //     }
-    //   },
-    //   project: {
-    //     select: {
-    //       id: true,
-    //       name: true
-    //     }
-    //   }
-    // }
   });
 
   return result;
 };
+
+// bulk operation. get many tasks by ids
+export const getTasksByIds = async (taskIds, withDeleted) => await prisma.tasks.findMany({
+  where: { id: { in: taskIds }, deletedAt: withDeleted ? {} : null },
+  select: { id: true, deletedAt: true }
+});
+
 
 export const getTaskImageById = async (id) => {
   const where = {

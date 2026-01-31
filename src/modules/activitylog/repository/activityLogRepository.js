@@ -1,6 +1,6 @@
 import prisma from "../../../db/db.js";
 
-export const findByProjectId = async ({
+export const findActivityLogsByProjectId = async ({
   projectId,
   cursor,
   limit
@@ -9,25 +9,26 @@ export const findByProjectId = async ({
     where: {
       projectId,
       ...(cursor && {
-        createdAt: {
-          lt: cursor.createdAt
-        },
-      }),
-      ...(cursor && {
-        createdAt: cursor.createdAt,
-        id: {
-          lt: cursor.id
-        }
-      }),
+        OR: [
+          {
+            createdAt: { lt: cursor.createdAt }
+          },
+          {
+            createdAt: cursor.createdAt,
+            id: { lt: cursor.id }
+          }
+        ]
+      })
     },
-    orderBy: {
-      createdAt: 'desc'
-    },
+    orderBy: [
+      { createdAt: 'desc' },
+      { id: 'desc' },
+    ],
     take: limit
   });
 };
 
-export const findByTaskId = async ({
+export const findActivityLogsByTaskId = async ({
   taskId,
   cursor,
   limit
@@ -37,47 +38,52 @@ export const findByTaskId = async ({
       entityType: 'task',
       entityId: taskId,
       ...(cursor && {
-        createdAt: {
-          lt: cursor.createdAt
-        },
-      }),
-      ...(cursor && {
-        createdAt: cursor.createdAt,
-        id: {
-          lt: cursor.id
-        }
-      }),
+        OR: [
+          {
+            createdAt: { lt: cursor.createdAt }
+          },
+          {
+            createdAt: cursor.createdAt,
+            id: { lt: cursor.id }
+          }
+        ]
+      })
     },
-    orderBy: {
-      createdAt: 'desc'
-    },
+    orderBy: [
+      { createdAt: 'desc' },
+      { id: 'desc' },
+    ],
     take: limit
   });
 };
 
-export const findByUserId = async ({
+export const findActivityLogsByUserId = async ({
   userId,
   cursor,
   limit
 }) => {
   return prisma.activityLogs.findMany({
     where: {
-      actorId: userId,
+      OR: [
+        { actorId: userId },
+        { targetUserId: userId }
+      ],
       ...(cursor && {
-        createdAt: {
-          lt: cursor.createdAt
-        },
-      }),
-      ...(cursor && {
-        createdAt: cursor.createdAt,
-        id: {
-          lt: cursor.id
-        }
-      }),
+        OR: [
+          {
+            createdAt: { lt: cursor.createdAt }
+          },
+          {
+            createdAt: cursor.createdAt,
+            id: { lt: cursor.id }
+          }
+        ]
+      })
     },
-    orderBy: {
-      createdAt: 'desc'
-    },
+    orderBy: [
+      { createdAt: 'desc' },
+      { id: 'desc' },
+    ],
     take: limit
   });
 };

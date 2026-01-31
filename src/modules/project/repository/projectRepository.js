@@ -21,7 +21,7 @@ export const getProjectsByUserId = async (status, { userId, page, limit, filter 
     };
 
     const result = await prisma.projectMembers.findMany({
-        where, 
+        where,
         select: {
             id: true,
             role: true,
@@ -53,9 +53,9 @@ export const getProjectsByUserId = async (status, { userId, page, limit, filter 
         updatedAt: res.project.updatedAt
     }));
 
-    const totalProjects = await prisma.projectMembers.count({where});
+    const totalProjects = await prisma.projectMembers.count({ where });
 
-    return {projects, totalProjects};
+    return { projects, totalProjects };
 };
 
 export const getProjectById = async (id) => {
@@ -85,6 +85,12 @@ export const getProjectByIdfromAll = async (id) => {
         name: result.name,
     })
 };
+
+// bulk operation for getting projects by ids
+export const getProjectsByIds = async (projectIds, withDeleted) => await prisma.projects.findMany({
+    where: { id: { in: projectIds }, deletedAt: withDeleted ? {} : null },
+    select: { id: true, deletedAt: true }
+});
 
 export const editProject = async (id, data) => {
     return await prisma.projects.update({ where: { id }, data })
