@@ -5,6 +5,9 @@ import { getUserByIdService, getUserByNameOrUsernameService } from '../../user/s
 import { BadRequestError, ForbiddenError, NotFoundError } from '../../exceptions/errors.js';
 import { getAllTasksService, restoreSoftDeletedTasksByProjectIdService, softDeleteTasksByProjectService } from '../../task/service/taskService.js';
 import { getUserById } from '../../user/repository/userRepository.js';
+import CacheService from '../../cache/cacheService.js';
+
+const redisClient = new CacheService();
 
 export const addNewProjectService = async ({ name, userId }) => {
     const project = await addProject({ name, userId });
@@ -71,7 +74,7 @@ export const updateActiveProjectMemberService = async ({ projectId, memberId, is
     if (!isActive) {
         const filter = {
             completed: false,
-            asigneeId: memberId,
+            assigneeId: memberId,
             projectId
         };
 
@@ -79,6 +82,13 @@ export const updateActiveProjectMemberService = async ({ projectId, memberId, is
         if (totalTasks > 0) {
             throw new BadRequestError('there are active tasks assigned to this member still undone. change it to done if task is finished. otherwise, assigned to another or null');
         }
+    }
+
+    const cacheGroupKey = `tasks_cache_group:user:${member.userId}`;
+    const keys = await redisClient.getCacheGroup(cacheGroupKey);
+    if (keys.length) {
+        await redisClient.delete(keys); // hapus semua cache task list user
+        await redisClient.delete(cacheGroupKey); // bersihkan set-nya juga
     }
 
     //update status
@@ -94,8 +104,8 @@ export const getAllUserProjectsService = async (status, queryParams) => {
     // const checkUser = await getUserById(userId);
     // if (!checkUser) throw new NotFoundError("User with this user id is not found");
 
-    const {projects, totalProjects} = await getProjectsByUserId(status, queryParams);
-    return {projects, totalProjects};
+    const { projects, totalProjects } = await getProjectsByUserId(status, queryParams);
+    return { projects, totalProjects };
 };
 
 export const getAllUserProjectsFromAllService = async (userId) => {

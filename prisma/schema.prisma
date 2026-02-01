@@ -65,19 +65,19 @@ model Tasks {
   title       String
   description String?
   completed   Boolean   @default(false)
-  asigneeId   String?   @map("asignee_id")
+  assigneeId   String?   @map("assignee_id")
   projectId   String    @map("project_id")
   createdAt   DateTime  @default(now()) @map("created_at")
   updatedAt   DateTime  @updatedAt @map("updated_at")
   deletedAt   DateTime? @map("deleted_at")
 
   //Relation
-  asignee    ProjectMembers? @relation(fields: [asigneeId], references: [id])
+  assignee    ProjectMembers? @relation(fields: [assigneeId], references: [id])
   project    Projects        @relation(fields: [projectId], references: [id], onDelete: Cascade)
   taskImages TaskImages[]
 
   @@index([projectId])
-  @@index([asigneeId])
+  @@index([assigneeId])
   @@index([completed])
 }
 

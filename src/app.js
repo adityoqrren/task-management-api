@@ -4,9 +4,12 @@ import errorHandler from './middlewares/errorHandler.js';
 import projectRoutes from './project/projectRoutes.js';
 import taskRoutes from './task/taskRoutes.js';
 import userRoutes from './user/userRoutes.js';
+import { initRabbit } from './queue/queueService.js';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+await initRabbit();
 
 app.use(express.json());
 

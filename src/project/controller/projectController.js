@@ -221,7 +221,7 @@ export const handleGetProjectTasks = async (req, res, next) => {
 
         const queryParams = { userId, page, limit, filter, sortBy: sortField, order: sortOrder };
 
-        const { isFromCache, tasks, totalTasks } = await getAllTasksByProjectIdService(isSimpleQuery, status, queryParams);
+        const { isFromCache, tasks, totalTasks } = await getAllTasksByProjectIdService({ isSimpleQuery, status, queryParams });
         const totalPages = (limit) ? Math.ceil(totalTasks / limit) : (totalTasks > 0) ? 1 : 0;
         if (totalPages > 0 && page > totalPages) throw new BadRequestError("Page is over from limit");
         if (isFromCache) {
