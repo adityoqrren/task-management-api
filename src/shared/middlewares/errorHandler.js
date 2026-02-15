@@ -6,11 +6,11 @@ function errorHandler(err, req, res, next) {
     const issues = err.errors || err.issues || [];
     return res.status(400).json({
       status: "fail",
-      message: issues[0].message
-      // errors: issues.map((e) => ({
-      //   path: e.path.join("."),
-      //   message: e.message,
-      // })),
+      message: "Validation Error",
+      errors: issues.map((e) => ({
+        path: e.path.join("."),
+        message: e.message,
+      })),
     });
   }
 

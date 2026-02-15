@@ -18,7 +18,7 @@ export const handlePostProject = async (req, res, next) => {
 };
 
 export const handleAddProjectMember = async (req, res, next) => {
-    console.log("masuk handleAddProjectMmember");
+    // console.log("masuk handleAddProjectMmember");
     const { projectId, userId } = req.body;
 
     try {

@@ -7,6 +7,8 @@ import userRoutes from './modules/user/userRoutes.js';
 import notificationRoutes from './modules/notification/notificationRoutes.js';
 import activityLogRoutes from './modules/activitylog/activityLogRoutes.js';
 import { initRabbit } from './queue/queueService.js';
+import swaggerUi from 'swagger-ui-express';
+import specs from './shared/config/swagger.js';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -14,6 +16,7 @@ const PORT = process.env.PORT || 3000;
 await initRabbit();
 
 app.use(express.json());
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(specs));
 
 app.use('/api/auth', authRoutes);
 app.use('/api/projects', projectRoutes);
