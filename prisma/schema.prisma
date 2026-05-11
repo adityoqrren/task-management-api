@@ -24,6 +24,7 @@ model Users {
   //Relation
   projects       Projects[]       @relation("ProjectLeader")
   projectMembers ProjectMembers[]
+  refreshTokens  RefreshTokens[]
 }
 
 model Projects {
@@ -98,6 +99,20 @@ model Authentications {
   token String
 
   @@index([token])
+}
+
+model RefreshTokens {
+  id     String @id @default(uuid())
+  userId String
+  user   Users  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  tokenHash String   @unique
+  expiresAt DateTime
+  revoked   Boolean  @default(false)
+
+  createdAt DateTime @default(now())
+
+  @@index([userId])
 }
 
 model Notifications {

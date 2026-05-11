@@ -15,3 +15,18 @@ export const validateRequest = (schema) => (req, res, next) => {
     next(error);
   }
 };
+
+export const validateRequestAuth = (schema) => (req, res, next) => {
+  try {
+    if (req.body) {
+      const data = {
+        body: req.body,
+      };
+
+      schema.parse(data); // akan throw kalau invalid
+    } 
+    next();
+  } catch (error) {
+    next(error);
+  }
+};

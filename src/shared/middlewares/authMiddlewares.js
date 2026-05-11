@@ -3,13 +3,25 @@ import { UnauthorizedError } from '../../exceptions/errors.js';
 
 export const authenticate = (req, res, next) => {
   try {
-    const authHeader = req.headers.authorization
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      // return res.status(401).json({ message: 'Unauthorized: No token provided' })
-      throw new UnauthorizedError('Unauthorized: No token provided');
+    let token = null;
+
+    const authHeader = req.headers.authorization;
+    const cookieToken = req.cookies?.accessToken;
+
+    // 1️⃣ Bearer
+    if (authHeader?.startsWith("Bearer ")) {
+      token = authHeader.split(" ")[1];
+    }
+    // 2️⃣ Cookie
+    else if (cookieToken) {
+      token = cookieToken;
     }
 
-    const token = authHeader.split(' ')[1]
+    console.log(`token: ${token}`);
+
+    if (!token) {
+      throw new UnauthorizedError('Unauthorized: No token provided')
+    }
 
     try {
       const payload = jwt.verify(token, process.env.ACCESS_TOKEN_SECRET)
@@ -21,6 +33,6 @@ export const authenticate = (req, res, next) => {
       throw new UnauthorizedError('Unauthorized: Invalid token');
     }
   } catch (error) {
-    next(error);
+    next(error)
   }
 }

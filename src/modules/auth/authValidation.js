@@ -18,6 +18,6 @@ export const loginSchema = z.object({
 
 export const updateTokenSchema = z.object({
   body: z.object({
-    refreshToken: z.jwt(),
+    refreshToken: z.string().length(128),
   }),
 });

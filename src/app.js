@@ -9,12 +9,21 @@ import activityLogRoutes from './modules/activitylog/activityLogRoutes.js';
 import { initRabbit } from './queue/queueService.js';
 import swaggerUi from 'swagger-ui-express';
 import specs from './shared/config/swagger.js';
+import cors from "cors";
+import cookieParser from 'cookie-parser';
+
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+app.use(cors({
+  origin: "http://localhost:3001",
+  credentials: true,
+}));
+
 await initRabbit();
 
+app.use(cookieParser());
 app.use(express.json());
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(specs));
 

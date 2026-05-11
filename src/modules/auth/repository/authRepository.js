@@ -43,22 +43,34 @@ export const getUserByEmailOrUsername = async (email) => {
     });
 };
 
-export const addToken = async (refreshToken) => {
-    return await prisma.authentications.create({
-        data: { token: refreshToken }
+export const addRefreshToken = async (userId, tokenHash) => {
+    await prisma.refreshTokens.create({
+        data: {
+            userId,
+            tokenHash,
+            expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+        },
     });
 }
 
-export const deleteToken = async (refreshToken) => {
-    return await prisma.authentications.deleteMany({
-        where: { token: refreshToken }
+export const updateRefreshToken = async (tokenId) => {
+    return await prisma.refreshTokens.update({
+        where: { id: tokenId },
+        data: { revoked: true },
     });
 }
 
-export const getToken = async (refreshToken) => {
-    return await prisma.authentications.findFirst({
+export const deleteRefreshToken = async (tokenId) => {
+    return await prisma.refreshTokens.deleteMany({
+        where: { id: tokenId }
+    });
+}
+
+export const getRefreshToken = async (tokenHash, revoked) => {
+    return await prisma.refreshTokens.findFirst({
         where: {
-            token: refreshToken
+            tokenHash,
+            revoked
         }
     });
 };

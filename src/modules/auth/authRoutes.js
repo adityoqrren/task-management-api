@@ -1,7 +1,7 @@
 import express from 'express';
-import { handleRegister, handleLogin, handleGetUserInfoLogin, handleUpdateToken, handleDeleteToken } from './controller/authController.js';
+import { handleRegister, handleLogin, handleGetUserInfoLogin, handleUpdateToken, handleLogout } from './controller/authController.js';
 import { authenticate } from '../../shared/middlewares/authMiddlewares.js';
-import { validateRequest } from '../../shared/middlewares/validateRequest.js';
+import { validateRequest, validateRequestAuth } from '../../shared/middlewares/validateRequest.js';
 import { loginSchema, registerSchema, updateTokenSchema } from './authValidation.js';
 
 const router = express.Router();
@@ -183,7 +183,7 @@ router.get('/info', authenticate, handleGetUserInfoLogin);
  *               status: "success"
  *               message: "delete token success"
  */
-router.put('/token', validateRequest(updateTokenSchema), handleUpdateToken);
-router.delete('/token', validateRequest(updateTokenSchema), handleDeleteToken);
+router.put('/token', validateRequestAuth(updateTokenSchema), handleUpdateToken);
+router.delete('/token', validateRequestAuth(updateTokenSchema), handleLogout);
 
 export default router;
