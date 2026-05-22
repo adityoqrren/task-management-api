@@ -181,7 +181,7 @@ export const handleGetProjectTasks = async (req, res, next) => {
     try {
         const projectIdParam = req.params.id;
 
-        const { status = 'active', userId, completed, search, sortBy, order } = req.query;
+        const { status = 'active', userId, completed, search, sortBy, order, include } = req.query;
 
         //console.log(`userId : ${userId}`);
 
@@ -218,9 +218,10 @@ export const handleGetProjectTasks = async (req, res, next) => {
             completed === undefined &&
             !search &&
             (!sortBy || sortBy === 'createdAt') &&
-            (!order || order === 'desc');
+            (!order || order === 'desc') &&
+            !include;
 
-        const queryParams = { userId, page, limit, filter, sortBy: sortField, order: sortOrder };
+        const queryParams = { userId, page, limit, filter, sortBy: sortField, order: sortOrder, include };
 
         const { isFromCache, tasks, totalTasks } = await getAllTasksByProjectIdService({ isSimpleQuery, status, queryParams });
         const totalPages = (limit) ? Math.ceil(totalTasks / limit) : (totalTasks > 0) ? 1 : 0;

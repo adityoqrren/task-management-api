@@ -14,8 +14,8 @@ export const addTaskImage = async (data) => {
   });
 }
 
-export const getAllTasks = async (status, { userId, page, limit, filter = {}, sortBy, order }) => {
-  console.log(`userId : ${userId} | status ${status} | page ${page} | limit ${limit} | filter ${filter} | sortBy ${sortBy} | order ${order}`);
+export const getAllTasks = async (status, { userId, page, limit, filter = {}, sortBy, order, include }) => {
+  console.log(`userId : ${userId} | status ${status} | page ${page} | limit ${limit} | filter ${filter} | sortBy ${sortBy} | order ${order} | include ${include}`);
   const skip = (page - 1) * limit;
 
   const where = {
@@ -54,6 +54,22 @@ export const getAllTasks = async (status, { userId, page, limit, filter = {}, so
     }
   }
 
+  if (include === 'assignee') {
+    includeRelations.assignee = {
+      select: {
+        id: true,
+        role: true,
+        isActive: true,
+        joinedAt: true,
+        user: {
+          select: {
+            name: true
+          }
+        }
+      }
+    }
+  }
+
   const baseQuery = {
     where,
     skip,
@@ -71,14 +87,29 @@ export const getAllTasks = async (status, { userId, page, limit, filter = {}, so
 
   const result = await prisma.tasks.findMany(baseQuery);
 
-  const tasks = result.map((res) => ({
-    taskId: res.id,
-    projectId: res.projectId,
-    title: res.title,
-    description: res.description,
-    picId: res.assigneeId,
-    completed: res.completed
-  }));
+  const tasks = result.map((res) => {
+    const task = {
+      taskId: res.id,
+      projectId: res.projectId,
+      project: res.project,
+      title: res.title,
+      description: res.description,
+      picId: res.assigneeId,
+      completed: res.completed
+    };
+
+    if (res.assignee) {
+      task.assignee = {
+        memberId: res.assignee.id,
+        name: res.assignee.user.name,
+        role: res.assignee.role,
+        isActive: res.assignee.isActive,
+        joinedAt: res.assignee.joinedAt
+      };
+    }
+
+    return task;
+  });
 
   const totalTasks = await prisma.tasks.count({ where });
 
