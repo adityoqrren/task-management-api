@@ -31,7 +31,9 @@ export const getAllTasks = async (status, { userId, page, limit, filter = {}, so
     }
   }
 
-  // Handle status
+  // Handle status 
+  // (Note: This 'status' parameter refers to the soft-delete state: 'active' or 'deleted', 
+  // and NOT the task progress state / TaskStatus enum like TODO or DONE)
   if (status === "active") {
     where.deletedAt = null;
   } else if (status === "deleted") {
@@ -49,7 +51,7 @@ export const getAllTasks = async (status, { userId, page, limit, filter = {}, so
     project: {
       select: {
         id: true,
-        name: true
+        name: true,
       }
     }
   }
@@ -95,7 +97,8 @@ export const getAllTasks = async (status, { userId, page, limit, filter = {}, so
       title: res.title,
       description: res.description,
       picId: res.assigneeId,
-      completed: res.completed
+      completed: res.completed,
+      status: res.status
     };
 
     if (res.assignee) {

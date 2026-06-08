@@ -11,6 +11,7 @@ import {
   handleRestoreSoftDeletedTask,
   handleSoftDeleteTask,
   handleStatusUpdateTask,
+  handleProgressUpdateTask,
   handleUpdateTask,
   // handleGetTaskById,
   // handleUpdateTask,
@@ -29,7 +30,7 @@ import { authenticate } from '../../shared/middlewares/authMiddlewares.js';
 import { apiLimiter } from '../../shared/middlewares/rateLimiter.js';
 import { checkProjectRole, checkProjectRoleForTask, checkProjectRoleForUpdateStatusTask } from '../../shared/middlewares/checkProjectRole.js';
 import { validateRequest } from '../../shared/middlewares/validateRequest.js';
-import { assignTaskSchema, updateTaskSchema, updateTaskStatusSchema, postTaskSchema, postTaskImageSchema } from './taskValidation.js';
+import { assignTaskSchema, updateTaskSchema, updateTaskStatusSchema, updateTaskProgressSchema, postTaskSchema, postTaskImageSchema } from './taskValidation.js';
 import multer from 'multer';
 
 const router = express.Router();
@@ -333,6 +334,47 @@ router.patch('/:taskId/soft-delete', checkProjectRoleForTask(['LEADER']), handle
  *                 completed: true
  */
 router.patch('/:taskId/completed', validateRequest(updateTaskStatusSchema), checkProjectRoleForUpdateStatusTask(['LEADER', 'MEMBER']), handleStatusUpdateTask);
+
+/**
+ * @swagger
+ * /api/tasks/{taskId}/progress:
+ *   patch:
+ *     summary: Update task progress (status and description)
+ *     tags: [Tasks]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: taskId
+ *         required: true
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               status:
+ *                 type: string
+ *                 enum: [TODO, IN_PROGRESS, DONE]
+ *               description:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Task progress updated successfully
+ *         content:
+ *           application/json:
+ *             example:
+ *               status: "success"
+ *               message: "task progress success changed"
+ *               data:
+ *                 id: "uuid-task-1"
+ *                 title: "Identify Bug"
+ *                 status: "IN_PROGRESS"
+ *                 description: "working on it"
+ *                 completed: false
+ */
+router.patch('/:taskId/progress', validateRequest(updateTaskProgressSchema), checkProjectRoleForUpdateStatusTask(['LEADER', 'MEMBER']), handleProgressUpdateTask);
 
 /**
  * @swagger

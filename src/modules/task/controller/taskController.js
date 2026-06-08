@@ -23,14 +23,15 @@ import { BadRequestError } from '../../../exceptions/errors.js';
 
 export const handlePostTask = async (req, res, next) => {
   try {
-    const { title, description = "", projectId } = req.body;
+    const { title, description = "", projectId, status } = req.body;
     const userId = req.user.id;
 
-    const task = await addTaskService(userId, { title, description, projectId });
+    const task = await addTaskService(userId, { title, description, projectId, status });
 
     return successResponse(res, "task created", {
       taskId: task.id,
-      projectId
+      projectId,
+      status: task.status
     }, 201);
   } catch (error) {
     next(error);
@@ -128,8 +129,12 @@ export const handleGetAllUserTasks = async (req, res, next) => {
     /**
      * completed : is task completed. viewed by completed variable.
      * status : active | all | deleted. viewed by deleted_at. deleted_at = null means active. deleted_at != null means inactive.
+     * taskStatus : TODO | IN_PROGRESS | DONE | CANCELLED. The lifecycle state of the task.
+     * 
+     * Note: 'status' query param is used for the soft deletion state, 
+     * while 'taskStatus' query param is used to filter by the task's progress state.
      */
-    const { status = 'active', projectId, completed, search, sortBy, order } = req.query;
+    const { status = 'active', projectId, completed, search, sortBy, order, taskStatus } = req.query;
     const userId = req.user.id;
 
     const limit = parseInt(req.query.limit, 10) || 0;
@@ -152,6 +157,10 @@ export const handleGetAllUserTasks = async (req, res, next) => {
       filter.completed = completed === 'true';
     }
 
+    if (taskStatus) {
+      filter.status = taskStatus;
+    }
+
     if (search) {
       filter.title = {
         contains: search,
@@ -164,6 +173,7 @@ export const handleGetAllUserTasks = async (req, res, next) => {
       status === 'active' &&
       !projectId &&
       completed === undefined &&
+      !taskStatus &&
       !search &&
       (!sortBy || sortBy === 'createdAt') &&
       (!order || order === 'desc');
@@ -222,7 +232,7 @@ export const handleUpdateTask = async (req, res, next) => {
     const taskId = req.params.taskId;
     const assigneeUserId = req.assigneeUserId;
     // const projectId = req.taskProjectId;
-    const updatedTask = await editTaskService({ taskId, ownerEmail, assigneeUserId, data: req.body });
+    const updatedTask = await editTaskService({ userId: req.user.id, taskId, ownerEmail, assigneeUserId, data: req.body });
     return successResponse(res, "success updating task", updatedTask);
   } catch (error) {
     next(error);
@@ -235,6 +245,17 @@ export const handleStatusUpdateTask = async (req, res, next) => {
     const taskId = req.params.taskId;
     const updatedTask = await editTaskService({ userId, taskId, data: req.body, statusUpdate: true });
     return successResponse(res, "task status success changed", updatedTask);
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const handleProgressUpdateTask = async (req, res, next) => {
+  try {
+    const userId = req.user.id;
+    const taskId = req.params.taskId;
+    const updatedTask = await editTaskService({ userId, taskId, data: req.body, statusUpdate: true });
+    return successResponse(res, "task progress success changed", updatedTask);
   } catch (error) {
     next(error);
   }

@@ -14,6 +14,13 @@ const storageService = new StorageService();
 const redisClient = new CacheService();
 
 export const addTaskService = async (userId, data) => {
+  if (data.status) {
+    if (data.status === 'DONE') {
+      data.completed = true;
+    } else {
+      data.completed = false;
+    }
+  }
   const addedTask = await addTask(data);
 
   //TODO: invalidate project task
@@ -293,6 +300,20 @@ export const editTaskService = async ({ userId, taskId, ownerEmail, assigneeUser
   // const taskExisting = await getTaskById(taskId, false)
   // const existingUserId = taskExisting.assignee?.userId ?? null;
 
+  if (data.status) {
+    if (data.status === 'DONE') {
+      data.completed = true;
+    } else {
+      data.completed = false;
+    }
+  } else if (data.completed !== undefined) {
+    if (data.completed) {
+      data.status = 'DONE';
+    } else {
+      data.status = 'TODO';
+    }
+  }
+
   const editedTask = await editTask(taskId, data);
 
   console.log(`ini member id assignee : ${editedTask.assigneeId}`);
@@ -307,7 +328,7 @@ export const editTaskService = async ({ userId, taskId, ownerEmail, assigneeUser
     }
   }
 
-  const { projectId, title, description, assigneeId: picId, completed } = editedTask;
+  const { projectId, title, description, assigneeId: picId, completed, status } = editedTask;
   const assigneeEmail = editedTask.assignee?.user?.email ?? null;
 
   // send email to assignee (if has been assigned)
@@ -322,7 +343,8 @@ export const editTaskService = async ({ userId, taskId, ownerEmail, assigneeUser
       `
     });
 
-    if (statusUpdate && editedTask.completed) {
+    const isNewlyCompleted = (statusUpdate && editedTask.completed) || (data.status === 'DONE' && editedTask.completed);
+    if (isNewlyCompleted) {
       //publish task.completed event to queue
       await publishEvent({
         id: 'event-' + generateEventId(),
@@ -334,7 +356,7 @@ export const editTaskService = async ({ userId, taskId, ownerEmail, assigneeUser
           taskTitle: editedTask.title,
           projectId: editedTask.projectId,
           projectName: editedTask.project.name,
-          assignedUserId: editedTask.assignee.userId,
+          assignedUserId: editedTask.assignee?.userId ?? null,
           ownerId: editedTask.project.owner,
         },
       });
@@ -350,7 +372,7 @@ export const editTaskService = async ({ userId, taskId, ownerEmail, assigneeUser
           taskTitle: editedTask.title,
           projectId: editedTask.projectId,
           projectName: editedTask.project.name,
-          assignedUserId: editedTask.assignee.userId,
+          assignedUserId: editedTask.assignee?.userId ?? null,
           ownerId: editedTask.project.owner,
         },
       });
@@ -383,6 +405,7 @@ export const editTaskService = async ({ userId, taskId, ownerEmail, assigneeUser
     description,
     picId,
     completed,
+    status,
   };
 };
 

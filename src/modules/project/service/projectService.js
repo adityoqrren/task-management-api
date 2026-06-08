@@ -145,7 +145,10 @@ export const getAllUserProjectsService = async (status, queryParams) => {
 export const getProjectByIdService = async ({ projectId, userId }) => {
     const project = await getProjectById(projectId)
     if (!project) throw new NotFoundError('Project not found')
-    if (project.owner !== userId) throw new ForbiddenError("You are not a member of this project")
+    // if (project.owner !== userId) throw new ForbiddenError("You are not a member of this project")
+    // check if this user is member or not
+    const checkMember = await getProjectMemberByUserId(userId);
+    if (checkMember) throw new ForbiddenError("You are not a member of this project")
     return project
 }
 

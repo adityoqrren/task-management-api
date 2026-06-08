@@ -66,6 +66,7 @@ model Tasks {
   title       String
   description String?
   completed   Boolean   @default(false)
+  status      TaskStatus @default(TODO)
   assigneeId  String?   @map("assignee_id")
   projectId   String    @map("project_id")
   createdAt   DateTime  @default(now()) @map("created_at")
@@ -168,3 +169,10 @@ enum ProjectRole {
   LEADER
   MEMBER
 }
+
+enum TaskStatus {
+  TODO
+  IN_PROGRESS
+  DONE
+}
+

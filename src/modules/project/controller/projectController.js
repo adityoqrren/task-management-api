@@ -31,13 +31,16 @@ export const handleAddProjectMember = async (req, res, next) => {
 
 export const handleGetProjects = async (req, res, next) => {
     try {
-        const { status = 'active', sortBy, order } = req.query;
+        const { status = 'active', sortBy, order, memberStatus } = req.query;
         const userId = req.user.id;
 
         const limit = parseInt(req.query.limit, 10) || 0;
         const page = parseInt(req.query.page, 10) || 1;
 
-        const filter = {};
+        const filter = {
+            ...(memberStatus === "active" && { isActive: true }),
+            ...(memberStatus === "inactive" && { isActive: false }),
+        };
 
         // Validasi sorting
         const validSortFields = ['createdAt', 'updatedAt', 'name'];
@@ -181,7 +184,11 @@ export const handleGetProjectTasks = async (req, res, next) => {
     try {
         const projectIdParam = req.params.id;
 
-        const { status = 'active', userId, completed, search, sortBy, order, include } = req.query;
+        /**
+         * Note: 'status' query param is used for the soft deletion state (active | deleted), 
+         * while 'taskStatus' query param is used to filter by the task's progress state (TODO | IN_PROGRESS | DONE | CANCELLED).
+         */
+        const { status = 'active', userId, completed, search, sortBy, order, include, taskStatus } = req.query;
 
         //console.log(`userId : ${userId}`);
 
@@ -204,6 +211,10 @@ export const handleGetProjectTasks = async (req, res, next) => {
             filter.completed = completed === 'true';
         }
 
+        if (taskStatus) {
+            filter.status = taskStatus;
+        }
+
         if (search) {
             filter.title = {
                 contains: search,
@@ -216,6 +227,7 @@ export const handleGetProjectTasks = async (req, res, next) => {
             status === 'active' &&
             !userId &&
             completed === undefined &&
+            !taskStatus &&
             !search &&
             (!sortBy || sortBy === 'createdAt') &&
             (!order || order === 'desc') &&
