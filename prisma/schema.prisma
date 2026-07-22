@@ -28,12 +28,14 @@ model Users {
 }
 
 model Projects {
-  id        String    @id @default(uuid())
-  name      String
-  owner     String
-  createdAt DateTime  @default(now()) @map("created_at")
-  updatedAt DateTime  @updatedAt @map("updated_at")
-  deletedAt DateTime? @map("deleted_at")
+  id          String    @id @default(uuid())
+  name        String
+  owner       String
+  description String?
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+  deletedAt      DateTime? @map("deleted_at")
+  lastActivityAt DateTime  @default(now()) @map("last_activity_at")
 
   // //Relation
   leader  Users            @relation("ProjectLeader", fields: [owner], references: [id])
@@ -62,16 +64,19 @@ model ProjectMembers {
 }
 
 model Tasks {
-  id          String    @id @default(uuid())
+  id          String       @id @default(uuid())
   title       String
   description String?
-  completed   Boolean   @default(false)
-  status      TaskStatus @default(TODO)
-  assigneeId  String?   @map("assignee_id")
-  projectId   String    @map("project_id")
-  createdAt   DateTime  @default(now()) @map("created_at")
-  updatedAt   DateTime  @updatedAt @map("updated_at")
-  deletedAt   DateTime? @map("deleted_at")
+  completed   Boolean      @default(false)
+  status      TaskStatus   @default(TODO)
+  assigneeId  String?      @map("assignee_id")
+  projectId   String       @map("project_id")
+  priority    TaskPriority @default(MEDIUM)
+  startDate   DateTime     @default(now()) @map("start_date")
+  dueDate     DateTime?    @map("due_date")
+  createdAt   DateTime     @default(now()) @map("created_at")
+  updatedAt   DateTime     @updatedAt @map("updated_at")
+  deletedAt   DateTime?    @map("deleted_at")
 
   //Relation
   assignee   ProjectMembers? @relation(fields: [assigneeId], references: [id])
@@ -81,6 +86,8 @@ model Tasks {
   @@index([projectId])
   @@index([assigneeId])
   @@index([completed])
+  @@index([deletedAt])
+  @@index([dueDate])
 }
 
 model TaskImages {
@@ -176,3 +183,8 @@ enum TaskStatus {
   DONE
 }
 
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+}

@@ -4,3 +4,6 @@ node_modules
 docker/.env
 planning
 notes.txt
+verify_*.js
+check.js
+scratch/

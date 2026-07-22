@@ -6,6 +6,7 @@ import taskRoutes from './modules/task/taskRoutes.js';
 import userRoutes from './modules/user/userRoutes.js';
 import notificationRoutes from './modules/notification/notificationRoutes.js';
 import activityLogRoutes from './modules/activitylog/activityLogRoutes.js';
+import dashboardRoutes from './modules/dashboard/dashboardRoutes.js';
 import { initRabbit } from './queue/queueService.js';
 import swaggerUi from 'swagger-ui-express';
 import specs from './shared/config/swagger.js';
@@ -33,6 +34,7 @@ app.use('/api/tasks', taskRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/activity-logs', activityLogRoutes);
+app.use('/api/dashboard', dashboardRoutes);
 
 app.use(errorHandler);
 

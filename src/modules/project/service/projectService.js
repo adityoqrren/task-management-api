@@ -1,8 +1,8 @@
 import { Prisma, ProjectRole } from '@prisma/client';
-import { addProject, getProjectsByUserId, getProjectById, editProject, deleteProject, addProjectMember, editProjectMemberById, getAllProjectMembers, updateProjectMemberByProjectUserId, softDeleteProject, getProjectByIdfromAll, getProjectMemberByMemberId, getProjectMemberByUserId, getProjectsByIds } from '../repository/projectRepository.js';
+import { addProject, getProjectsByUserId, getProjectById, editProject, deleteProject, addProjectMember, editProjectMemberById, getAllProjectMembers, updateProjectMemberByProjectUserId, softDeleteProject, getProjectByIdfromAll, getProjectMemberByMemberId, getProjectMemberByUserId, getProjectsByIds, updateProjectLastActivity } from '../repository/projectRepository.js';
 import { getUserByIdService, getUserByNameOrUsernameService } from '../../user/service/userService.js';
 import { BadRequestError, ForbiddenError, NotFoundError } from '../../../exceptions/errors.js';
-import { getAllTasksService, restoreSoftDeletedTasksByProjectIdService, softDeleteTasksByProjectService } from '../../task/service/taskService.js';
+import { getAllTasksService, restoreSoftDeletedTasksByProjectIdService, softDeleteTasksByProjectService, getTaskStatisticsByProjectIdService } from '../../task/service/taskService.js';
 import { getUserById } from '../../user/repository/userRepository.js';
 import CacheService from '../../../cache/cacheService.js';
 import { generateEventId } from '../../../shared/utils/uuid.js';
@@ -10,8 +10,8 @@ import publishEvent from '../../../queue/event/eventPublisher.js';
 
 const redisClient = new CacheService();
 
-export const addNewProjectService = async ({ name, userId }) => {
-    const project = await addProject({ name, userId });
+export const addNewProjectService = async ({ name, userId, description }) => {
+    const project = await addProject({ name, userId, description });
 
     //insert creator as leader in project's member
     const projectMember = await addProjectMember({
@@ -36,6 +36,7 @@ export const addNewProjectService = async ({ name, userId }) => {
     return {
         projectId: project.id,
         name: project.name,
+        description: project.description,
     };
 };
 
@@ -65,6 +66,7 @@ export const addProjectMemberService = async ({ projectId, userId }) => {
                 memberUserId: userId,
             }
         });
+        await updateProjectLastActivity(projectId);
         return { userId, ...projectMember };
     } catch (error) {
         if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
@@ -118,6 +120,7 @@ export const updateActiveProjectMemberService = async ({ projectId, memberId, is
     //update status
     const { id, ...rest } = await editProjectMemberById(memberId, { isActive });
 
+    await updateProjectLastActivity(projectId);
     return {
         memberId: id,
         ...rest
@@ -155,7 +158,7 @@ export const getProjectByIdService = async ({ projectId, userId }) => {
 export const getProjectByIdFromAllService = async ({ projectId, userId }) => {
     const project = await getProjectByIdfromAll(projectId)
     if (!project) throw new NotFoundError('Project not found')
-    if (project.owner !== userId) throw new ForbiddenError("You are not a member of this project")
+    if (project.owner !== userId) throw new ForbiddenError("You are not owner of this project")
     return project
 }
 
@@ -212,7 +215,34 @@ export const restoreSoftDeletedProjectService = async ({ userId, projectId }) =>
 export const deleteProjectService = async ({ userId, projectId }) => {
     const project = await getProjectByIdfromAll(projectId)
     if (!project) throw new NotFoundError('Project not found')
-    if (project.owner !== userId) throw new ForbiddenError("You are not a member of this project")
+    if (project.owner !== userId) throw new ForbiddenError("You are not owner of this project")
     if (project.deletedAt === null) throw new BadRequestError("You can only delete a project that has been soft deleted")
     await deleteProject(projectId)
 }
+
+export const getProjectStatisticsService = async (projectId) => {
+    const project = await getProjectById(projectId);
+    if (!project) throw new NotFoundError('Project not found');
+    const statistics = await getTaskStatisticsByProjectIdService(projectId);
+    return statistics;
+};
+
+export const getRecentProjectTasksService = async (projectId, limit) => {
+    const project = await getProjectById(projectId);
+    if (!project) throw new NotFoundError('Project not found');
+
+    const queryParams = {
+        page: 1,
+        limit,
+        filter: { projectId },
+        sortBy: 'updatedAt',
+        order: 'desc'
+    };
+
+    const { tasks } = await getAllTasksService('active', queryParams);
+    return tasks;
+};
+
+export const updateProjectLastActivityService = async (projectId) => {
+    return await updateProjectLastActivity(projectId);
+};

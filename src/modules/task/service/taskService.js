@@ -1,9 +1,9 @@
 // import { ta } from "zod/locales";
 // import { redis } from "../../config/redis.js";
 import { BadRequestError, NotFoundError } from "../../../exceptions/errors.js";
-import { getProjectMemberByMemberIdService, getProjectMembersService } from "../../project/service/projectService.js";
+import { getProjectMemberByMemberIdService, getProjectMembersService, updateProjectLastActivityService } from "../../project/service/projectService.js";
 import { makeError } from "../../../shared/utils/response.js";
-import { bulkMarkTasksCompleted, bulkSoftDeleteTasks, addTask, deleteTask, findValidTasksByIds, getAllTasks, getTaskById, softDeleteTask, editTask, softDeleteTasksByProjectId, restoreSoftDeletedTasksByProjectId, addTaskImage, getTaskImageById, deleteTaskImage, getTasksByIds } from "../repository/taskRepository.js";
+import { bulkMarkTasksCompleted, bulkSoftDeleteTasks, addTask, deleteTask, findValidTasksByIds, getAllTasks, getTaskById, softDeleteTask, editTask, softDeleteTasksByProjectId, restoreSoftDeletedTasksByProjectId, addTaskImage, getTaskImageById, deleteTaskImage, getTasksByIds, getTaskStatisticsByProjectId, getUserTaskCounts } from "../repository/taskRepository.js";
 import StorageService from "../../../storage/storageService.js";
 import CacheService from "../../../cache/cacheService.js";
 import { sendEmailMessage } from "../../../queue/emailProducer.js";
@@ -20,6 +20,11 @@ export const addTaskService = async (userId, data) => {
     } else {
       data.completed = false;
     }
+  }
+  if (data.priority) {
+    data.priority = data.priority.toUpperCase();
+  } else {
+    data.priority = 'MEDIUM';
   }
   const addedTask = await addTask(data);
 
@@ -43,6 +48,7 @@ export const addTaskService = async (userId, data) => {
     },
   });
 
+  await updateProjectLastActivityService(addedTask.projectId);
   return addedTask;
 };
 
@@ -56,6 +62,7 @@ export const addTaskImageService = async ({ taskId, imageTitle, fileBuffer, obje
     objectKey,
     bucketKey: process.env.R2_BUCKET_NAME,
   });
+  await updateProjectLastActivityService(addImageToDb.task.projectId);
   return {
     taskId,
     projectId: addImageToDb.task.projectId,
@@ -133,10 +140,9 @@ export const getAllTasksByUserIdService = async ({ isSimpleQuery, status, queryP
 export const getTaskByIdService = async ({ taskId, withDeleted }) => {
   const task = await getTaskById(taskId, withDeleted);
   if (!task) throw new NotFoundError('Task not found');
-  const { id, assigneeId: picId, taskImages, ...rest } = task;
   const storageService = new StorageService();
 
-  const taskImagesWithUrl = await Promise.all(taskImages.map(async (taskImage) => {
+  const taskImagesWithUrl = await Promise.all(task.taskImages.map(async (taskImage) => {
     const imageUrl = await storageService.createPreSignedUrl({
       bucket: taskImage.bucketKey,
       key: taskImage.objectKey,
@@ -148,9 +154,7 @@ export const getTaskByIdService = async ({ taskId, withDeleted }) => {
   }));
 
   return {
-    taskId: id,
-    picId,
-    ...rest,
+    ...task,
     taskImages: taskImagesWithUrl
   };
 };
@@ -290,6 +294,7 @@ export const assignActiveTaskService = async ({ taskId, projectId, ownerEmail, a
     await redisClient.delete(cacheGroupKey); // bersihkan set-nya juga
   }
 
+  await updateProjectLastActivityService(projectId);
   return editedTask;
 
 }
@@ -299,6 +304,10 @@ export const editTaskService = async ({ userId, taskId, ownerEmail, assigneeUser
   // console.log(`ini params id : ${id}`)
   // const taskExisting = await getTaskById(taskId, false)
   // const existingUserId = taskExisting.assignee?.userId ?? null;
+
+  if (data.priority) {
+    data.priority = data.priority.toUpperCase();
+  }
 
   if (data.status) {
     if (data.status === 'DONE') {
@@ -328,7 +337,7 @@ export const editTaskService = async ({ userId, taskId, ownerEmail, assigneeUser
     }
   }
 
-  const { projectId, title, description, assigneeId: picId, completed, status } = editedTask;
+  const { projectId, title, description, assigneeId: picId, completed, status, priority, startDate, dueDate } = editedTask;
   const assigneeEmail = editedTask.assignee?.user?.email ?? null;
 
   // send email to assignee (if has been assigned)
@@ -398,6 +407,7 @@ export const editTaskService = async ({ userId, taskId, ownerEmail, assigneeUser
     await redisClient.delete(cacheGroupKey); // bersihkan set-nya juga
   }
 
+  await updateProjectLastActivityService(projectId);
   return {
     taskId,
     projectId,
@@ -406,6 +416,9 @@ export const editTaskService = async ({ userId, taskId, ownerEmail, assigneeUser
     picId,
     completed,
     status,
+    priority,
+    startDate,
+    dueDate,
   };
 };
 
@@ -442,6 +455,7 @@ export const softDeleteTaskService = async ({ taskId, assigneeUserId, projectId,
     },
   });
 
+  await updateProjectLastActivityService(projectId);
   return softDeletedTask;
 };
 
@@ -492,6 +506,7 @@ export const restoreSoftDeletedTaskService = async (taskId) => {
     await redisClient.delete(cacheGroupKey); // bersihkan set-nya juga
   }
 
+  await updateProjectLastActivityService(updatedTask.projectId);
   return updatedTask;
 };
 
@@ -511,6 +526,7 @@ export const deleteTaskImageService = async (imageId) => {
     throw new BadRequestError('Failed to delete image from storage');
   }
   const deletedImage = await deleteTaskImage(imageId);
+  await updateProjectLastActivityService(existing.task.projectId);
   return deletedImage;
 }
 
@@ -525,6 +541,7 @@ export const deleteTaskService = async ({ userId, taskId }) => {
   // );
   // const deleteOnRedis2 = await redis.del(`tasks:${deletedTask.userId}:${deletedTask.projectId}`);
   // console.log(`deleted data on redis : ${deleteOnRedis} - ${deleteOnRedis2}`);
+  await updateProjectLastActivityService(deletedTask.projectId);
   return deletedTask;
 };
 
@@ -565,6 +582,11 @@ export const bulkMarkCompletedService = async (taskIds, userId) => {
   // Step 2: Perform bulk update
   await bulkMarkTasksCompleted(userId, validIds);
 
+  const projectIds = [...new Set(validTasks.map(t => t.projectId))];
+  for (const pId of projectIds) {
+    await updateProjectLastActivityService(pId);
+  }
+
   // Step 3: Identify failed task IDs (not found or invalid)
   const failedIds = taskIds.filter(id => !validIds.includes(id));
 
@@ -573,6 +595,15 @@ export const bulkMarkCompletedService = async (taskIds, userId) => {
     failedIds,
   };
 };
+
+export const getTaskStatisticsByProjectIdService = async (projectId) => {
+  return await getTaskStatisticsByProjectId(projectId);
+};
+
+export const getUserTaskCountsService = async (userId) => {
+  return await getUserTaskCounts(userId);
+};
+
 
 
 

@@ -1,14 +1,14 @@
 import { BadRequestError } from '../../../exceptions/errors.js';
 import { getAllTasksByProjectIdService, getAllTasksService } from '../../task/service/taskService.js';
 import { successPaginationResponse, successResponse } from '../../../shared/utils/response.js';
-import { addProjectMemberService, addNewProjectService, deleteProjectService, getAllUserProjectsService, getProjectByIdService, getProjectMembersService, updateActiveProjectMemberService, editProjectService, softDeleteProjectService, getProjectByIdFromAllService, restoreSoftDeletedProjectService } from '../service/projectService.js';
+import { addProjectMemberService, addNewProjectService, deleteProjectService, getAllUserProjectsService, getProjectByIdService, getProjectMembersService, updateActiveProjectMemberService, editProjectService, softDeleteProjectService, getProjectByIdFromAllService, restoreSoftDeletedProjectService, getProjectStatisticsService, getRecentProjectTasksService } from '../service/projectService.js';
 
 export const handlePostProject = async (req, res, next) => {
     try {
-        const { name } = req.body;
+        const { name, description } = req.body;
         const userId = req.user.id
         //console.log(`userId : ${userId}`);
-        const project = await addNewProjectService({ name, userId });
+        const project = await addNewProjectService({ name, userId, description });
         // res.status(201).json(project);
         return successResponse(res, "project has been created", project, 201);
     } catch (err) {
@@ -31,7 +31,7 @@ export const handleAddProjectMember = async (req, res, next) => {
 
 export const handleGetProjects = async (req, res, next) => {
     try {
-        const { status = 'active', sortBy, order, memberStatus } = req.query;
+        const { status = 'active', sortBy, order, memberStatus, search, role } = req.query;
         const userId = req.user.id;
 
         const limit = parseInt(req.query.limit, 10) || 0;
@@ -42,8 +42,16 @@ export const handleGetProjects = async (req, res, next) => {
             ...(memberStatus === "inactive" && { isActive: false }),
         };
 
+        if (role) {
+            filter.role = role.toUpperCase();
+        }
+
+        if (search) {
+            filter.search = search;
+        }
+
         // Validasi sorting
-        const validSortFields = ['createdAt', 'updatedAt', 'name'];
+        const validSortFields = ['createdAt', 'updatedAt', 'name', 'lastActivityAt'];
         const validOrders = ['asc', 'desc'];
 
         const sortField = validSortFields.includes(sortBy) ? sortBy : 'createdAt';
@@ -102,10 +110,11 @@ export const handleGetProjectByIdFromAll = async (req, res, next) => {
     try {
         const userId = req.user.id;
         // console.log(`${userId} - ${req.params.id}`)
-        const { projectId, name } = await getProjectByIdFromAllService({ userId, projectId: req.params.id })
+        const { projectId, name, description } = await getProjectByIdFromAllService({ userId, projectId: req.params.id })
         return successResponse(res, null, {
             projectId,
-            name
+            name,
+            description
         });
     } catch (err) {
         next(err)
@@ -188,7 +197,7 @@ export const handleGetProjectTasks = async (req, res, next) => {
          * Note: 'status' query param is used for the soft deletion state (active | deleted), 
          * while 'taskStatus' query param is used to filter by the task's progress state (TODO | IN_PROGRESS | DONE | CANCELLED).
          */
-        const { status = 'active', userId, completed, search, sortBy, order, include, taskStatus } = req.query;
+        const { status = 'active', userId, completed, search, sortBy, order, include, taskStatus, priority, assigneeId, assignee, dueFilter } = req.query;
 
         //console.log(`userId : ${userId}`);
 
@@ -198,7 +207,7 @@ export const handleGetProjectTasks = async (req, res, next) => {
         const filter = {};
 
         // Validasi sorting
-        const validSortFields = ['createdAt', 'title', 'priority', 'completed'];
+        const validSortFields = ['createdAt', 'title', 'status', 'assignee_name', 'priority', 'startDate', 'dueDate'];
         const validOrders = ['asc', 'desc'];
 
         const sortField = validSortFields.includes(sortBy) ? sortBy : 'createdAt';
@@ -212,7 +221,30 @@ export const handleGetProjectTasks = async (req, res, next) => {
         }
 
         if (taskStatus) {
-            filter.status = taskStatus;
+            filter.status = taskStatus.toUpperCase();
+        }
+
+        if (priority) {
+            filter.priority = priority.toUpperCase();
+        }
+
+        if (dueFilter === 'dueSoon') {
+            const now = new Date();
+            const threeDaysFromNow = new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000);
+            filter.dueDate = {
+                gte: now,
+                lte: threeDaysFromNow,
+            };
+        } else if (dueFilter === 'overdue') {
+            filter.dueDate = {
+                lt: new Date(),
+            };
+        }
+
+        if (assigneeId === 'unassigned' || assignee === 'unassigned') {
+            filter.assigneeId = null
+        } else if (assigneeId || assignee) {
+            filter.assigneeId = assigneeId || assignee;
         }
 
         if (search) {
@@ -228,10 +260,14 @@ export const handleGetProjectTasks = async (req, res, next) => {
             !userId &&
             completed === undefined &&
             !taskStatus &&
+            !priority &&
+            !assigneeId &&
+            !assignee &&
             !search &&
+            !dueFilter &&
             (!sortBy || sortBy === 'createdAt') &&
-            (!order || order === 'desc') &&
-            !include;
+            (!order || order === 'desc');
+            //  && !include;
 
         const queryParams = { userId, page, limit, filter, sortBy: sortField, order: sortOrder, include };
 
@@ -251,5 +287,37 @@ export const handleGetProjectTasks = async (req, res, next) => {
         });
     } catch (error) {
         next(error);
+    }
+};
+
+export const handleGetProjectStatistics = async (req, res, next) => {
+    try {
+        const projectId = req.params.id;
+        const statistics = await getProjectStatisticsService(projectId);
+        return res.status(200).json({
+            status: "success",
+            projectId,
+            statistics
+        });
+    } catch (err) {
+        next(err);
+    }
+};
+
+export const handleGetRecentProjectTasks = async (req, res, next) => {
+    try {
+        const projectId = req.params.id;
+        const limit = parseInt(req.query.limit, 10);
+        if (isNaN(limit) || limit <= 0) {
+            throw new BadRequestError("Limit query parameter must be a positive integer");
+        }
+        const tasks = await getRecentProjectTasksService(projectId, limit);
+        return res.status(200).json({
+            status: "success",
+            totalRecent: tasks.length,
+            data: tasks
+        });
+    } catch (err) {
+        next(err);
     }
 };

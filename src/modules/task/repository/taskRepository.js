@@ -72,11 +72,20 @@ export const getAllTasks = async (status, { userId, page, limit, filter = {}, so
     }
   }
 
+  let orderBy;
+  if (sortBy === 'project_name') {
+    orderBy = { project: { name: order } };
+  } else if (sortBy === 'assignee_name') {
+    orderBy = { assignee: { user: { name: order } } };
+  } else {
+    orderBy = { [sortBy]: order };
+  }
+
   const baseQuery = {
     where,
     skip,
     take: (limit > 0) ? limit : undefined,
-    orderBy: { [sortBy]: order },
+    orderBy,
   };
 
   //we only can use one between select and include    
@@ -98,7 +107,10 @@ export const getAllTasks = async (status, { userId, page, limit, filter = {}, so
       description: res.description,
       picId: res.assigneeId,
       completed: res.completed,
-      status: res.status
+      status: res.status,
+      priority: res.priority,
+      startDate: res.startDate,
+      dueDate: res.dueDate
     };
 
     if (res.assignee) {
@@ -129,16 +141,26 @@ export const getTaskById = async (id, withDeleted) => {
     where,
     include: {
       taskImages: true,
+      project: {
+        select: {
+          id: true,
+          name: true,
+        }
+      },
       assignee: {
         select: {
+          id: true,
           userId: true,
           role: true,
+          isActive: true,
+          joinedAt: true,
           user: {
             select: {
+              name: true,
               email: true,
             }
           }
-        }
+        },
       },
     }
   });
@@ -160,6 +182,9 @@ export const getTaskImageById = async (id) => {
 
   const result = await prisma.taskImages.findFirst({
     where,
+    include: {
+      task: true,
+    },
   });
 
   return result;
@@ -263,13 +288,85 @@ export const bulkMarkTasksCompleted = async (userId, taskIds) => {
 
 // Find all tasks that belong to the user, are not soft deleted, and match given IDs
 export const findValidTasksByIds = async (taskIds, userId, condition = {}) => {
-  return prisma.task.findMany({
+  return prisma.tasks.findMany({
     where: {
       id: { in: taskIds },
-      userId,
       deletedAt: null,
       ...condition
     },
-    select: { id: true },
+    select: { id: true, projectId: true },
   });
+};
+
+export const getTaskStatisticsByProjectId = async (projectId) => {
+  const groups = await prisma.tasks.groupBy({
+    by: ['status'],
+    where: {
+      projectId,
+      deletedAt: null
+    },
+    _count: {
+      status: true
+    }
+  });
+
+  const statistics = {
+    totalTasks: 0,
+    todo: 0,
+    inProgress: 0,
+    done: 0
+  };
+
+  groups.forEach(group => {
+    const count = group._count.status;
+    statistics.totalTasks += count;
+    if (group.status === 'TODO') {
+      statistics.todo = count;
+    } else if (group.status === 'IN_PROGRESS') {
+      statistics.inProgress = count;
+    } else if (group.status === 'DONE') {
+      statistics.done = count;
+    }
+  });
+
+  return statistics;
+};
+
+export const getUserTaskCounts = async (userId) => {
+  const now = new Date();
+  const threeDaysFromNow = new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000);
+
+  const baseWhere = {
+    assignee: {
+      userId,
+      isActive: true,
+    },
+    deletedAt: null,
+  };
+
+  const [all, todo, inProgress, done, dueSoon, overdue] = await Promise.all([
+    prisma.tasks.count({ where: baseWhere }),
+    prisma.tasks.count({ where: { ...baseWhere, status: 'TODO' } }),
+    prisma.tasks.count({ where: { ...baseWhere, status: 'IN_PROGRESS' } }),
+    prisma.tasks.count({ where: { ...baseWhere, status: 'DONE' } }),
+    prisma.tasks.count({
+      where: {
+        ...baseWhere,
+        dueDate: {
+          gte: now,
+          lte: threeDaysFromNow,
+        },
+      },
+    }),
+    prisma.tasks.count({
+      where: {
+        ...baseWhere,
+        dueDate: {
+          lt: now,
+        },
+      },
+    }),
+  ]);
+
+  return { all, todo, inProgress, dueSoon, overdue, done };
 };

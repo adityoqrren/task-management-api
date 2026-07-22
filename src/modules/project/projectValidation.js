@@ -3,6 +3,7 @@ import { z } from "zod";
 export const postProjectSchema = z.object({
     body: z.object({
         name: z.string().min(4, "Project name must be at least 4 chars"),
+        description: z.string().optional(),
     }),
 });
 

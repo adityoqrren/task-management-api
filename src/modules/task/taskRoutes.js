@@ -13,6 +13,7 @@ import {
   handleStatusUpdateTask,
   handleProgressUpdateTask,
   handleUpdateTask,
+  handleGetUserTaskCounts,
   // handleGetTaskById,
   // handleUpdateTask,
   // handleDeleteTask,
@@ -147,6 +148,7 @@ router.post('/:taskId/image', checkProjectRoleForTask(['LEADER', 'MEMBER']), upl
  */
 router.delete('/:taskId/image/:imageId', checkProjectRoleForTask(['LEADER', 'MEMBER']), upload.single('imageFile'), handleDeleteTaskImage);
 router.get('/me', handleGetAllUserTasks);
+router.get('/me/counts', handleGetUserTaskCounts);
 
 /**
  * @swagger

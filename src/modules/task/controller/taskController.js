@@ -3,12 +3,10 @@ import { makeError, successPaginationResponse, successResponse } from '../../../
 import { deleteTaskImage } from '../repository/taskRepository.js';
 import {
   addTaskService,
-  getAllTasksService,
   getTaskByIdService,
   editTaskService,
   deleteTaskService,
   softDeleteTaskService,
-  getTaskByIdWithDeletedDataService,
   restoreSoftDeletedTaskService,
   bulkSoftDeleteTasksService,
   bulkMarkCompletedService,
@@ -16,22 +14,26 @@ import {
   assignActiveTaskService,
   addTaskImageService,
   deleteTaskImageService,
-  getAllTasksByUserIdService
+  getAllTasksByUserIdService,
+  getUserTaskCountsService
 } from '../service/taskService.js';
 import path from 'path';
 import { BadRequestError } from '../../../exceptions/errors.js';
 
 export const handlePostTask = async (req, res, next) => {
   try {
-    const { title, description = "", projectId, status } = req.body;
+    const { title, description = "", projectId, status, priority, startDate, dueDate } = req.body;
     const userId = req.user.id;
 
-    const task = await addTaskService(userId, { title, description, projectId, status });
+    const task = await addTaskService(userId, { title, description, projectId, status, priority, startDate, dueDate });
 
     return successResponse(res, "task created", {
       taskId: task.id,
       projectId,
-      status: task.status
+      status: task.status,
+      priority: task.priority,
+      startDate: task.startDate,
+      dueDate: task.dueDate
     }, 201);
   } catch (error) {
     next(error);
@@ -134,7 +136,7 @@ export const handleGetAllUserTasks = async (req, res, next) => {
      * Note: 'status' query param is used for the soft deletion state, 
      * while 'taskStatus' query param is used to filter by the task's progress state.
      */
-    const { status = 'active', projectId, completed, search, sortBy, order, taskStatus } = req.query;
+    const { status = 'active', projectId, completed, search, sortBy, order, include, taskStatus, priority, dueFilter } = req.query;
     const userId = req.user.id;
 
     const limit = parseInt(req.query.limit, 10) || 0;
@@ -143,7 +145,7 @@ export const handleGetAllUserTasks = async (req, res, next) => {
     const filter = {};
 
     // Validasi sorting
-    const validSortFields = ['createdAt', 'title', 'priority', 'completed'];
+    const validSortFields = ['createdAt', 'title', 'status', 'project_name', 'priority', 'startDate', 'dueDate'];
     const validOrders = ['asc', 'desc'];
 
     const sortField = validSortFields.includes(sortBy) ? sortBy : 'createdAt';
@@ -158,7 +160,24 @@ export const handleGetAllUserTasks = async (req, res, next) => {
     }
 
     if (taskStatus) {
-      filter.status = taskStatus;
+      filter.status = taskStatus.toUpperCase();
+    }
+
+    if (priority) {
+      filter.priority = priority.toUpperCase();
+    }
+
+    if (dueFilter === 'dueSoon') {
+      const now = new Date();
+      const threeDaysFromNow = new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000);
+      filter.dueDate = {
+        gte: now,
+        lte: threeDaysFromNow,
+      };
+    } else if (dueFilter === 'overdue') {
+      filter.dueDate = {
+        lt: new Date(),
+      };
     }
 
     if (search) {
@@ -174,11 +193,14 @@ export const handleGetAllUserTasks = async (req, res, next) => {
       !projectId &&
       completed === undefined &&
       !taskStatus &&
+      !priority &&
       !search &&
+      !dueFilter &&
       (!sortBy || sortBy === 'createdAt') &&
       (!order || order === 'desc');
+    //  && !include;
 
-    const queryParams = { userId, page, limit, filter, sortBy: sortField, order: sortOrder };
+    const queryParams = { userId, page, limit, filter, sortBy: sortField, order: sortOrder, include };
     const { isFromCache, tasks, totalTasks } = await getAllTasksByUserIdService({ isSimpleQuery, status, queryParams });
     const totalPages = (limit) ? Math.ceil(totalTasks / limit) : (totalTasks > 0) ? 1 : 0;
     if (totalPages > 0 && page > totalPages) throw new BadRequestError("Page is over from limit");
@@ -198,6 +220,40 @@ export const handleGetAllUserTasks = async (req, res, next) => {
   }
 };
 
+const mapTaskDetail = (task) => {
+  const mapped = {
+    taskId: task.id,
+    projectId: task.projectId,
+    project: task.project,
+    title: task.title,
+    description: task.description,
+    picId: task.assigneeId,
+    completed: task.completed,
+    status: task.status,
+    priority: task.priority,
+    startDate: task.startDate,
+    dueDate: task.dueDate,
+    deletedAt: task.deletedAt,
+    taskImages: task.taskImages
+  };
+
+  if (task.assignee) {
+    mapped.assignee = {
+      memberId: task.assignee.id,
+      userId: task.assignee.userId,
+      name: task.assignee.user.name,
+      email: task.assignee.user.email,
+      role: task.assignee.role,
+      isActive: task.assignee.isActive,
+      joinedAt: task.assignee.joinedAt
+    };
+  } else {
+    mapped.assignee = null;
+  }
+
+  return mapped;
+};
+
 export const handleGetTaskById = async (req, res, next) => {
   try {
     //task id
@@ -206,7 +262,7 @@ export const handleGetTaskById = async (req, res, next) => {
 
     // if (!task) return res.status(404).json({ message: 'Task not found' });
 
-    return successResponse(res, null, task);
+    return successResponse(res, null, mapTaskDetail(task));
   } catch (error) {
     next(error);
   }
@@ -220,7 +276,7 @@ export const handleGetTaskByIdFromAll = async (req, res, next) => {
 
     // if (!task) return res.status(404).json({ message: 'Task not found' });
 
-    return successResponse(res, null, task);
+    return successResponse(res, null, mapTaskDetail(task));
   } catch (error) {
     next(error);
   }
@@ -380,4 +436,18 @@ export const handleBulkMarkTasksCompleted = async (req, res, next) => {
     next(error);
   }
 };
+
+export const handleGetUserTaskCounts = async (req, res, next) => {
+  try {
+    const userId = req.user.id;
+    const counts = await getUserTaskCountsService(userId);
+    return res.status(200).json({
+      status: "success",
+      counts,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 
