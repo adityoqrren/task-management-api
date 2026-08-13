@@ -129,7 +129,7 @@ export const logoutService = async (refreshToken) => {
   }
 
   // if (!existingToken.revoked) {
-    await updateRefreshToken(existingToken.id);
+  await updateRefreshToken(existingToken.id);
   // }
 
   return refreshToken;

@@ -22,16 +22,19 @@ model Users {
   createdAt DateTime @default(now()) @map("created_at")
 
   //Relation
-  projects       Projects[]       @relation("ProjectLeader")
-  projectMembers ProjectMembers[]
-  refreshTokens  RefreshTokens[]
+  projects         Projects[]       @relation("ProjectLeader")
+  projectMembers   ProjectMembers[]
+  refreshTokens    RefreshTokens[]
+  activities       ActivityLogs[]   @relation("ActivityLogActor")
+  targetActivities ActivityLogs[]   @relation("ActivityLogTarget")
+  taskComments     TaskComments[]
 }
 
 model Projects {
-  id          String    @id @default(uuid())
-  name        String
-  owner       String
-  description String?
+  id             String    @id @default(uuid())
+  name           String
+  owner          String
+  description    String?
   createdAt      DateTime  @default(now()) @map("created_at")
   updatedAt      DateTime  @updatedAt @map("updated_at")
   deletedAt      DateTime? @map("deleted_at")
@@ -79,9 +82,10 @@ model Tasks {
   deletedAt   DateTime?    @map("deleted_at")
 
   //Relation
-  assignee   ProjectMembers? @relation(fields: [assigneeId], references: [id])
-  project    Projects        @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  taskImages TaskImages[]
+  assignee     ProjectMembers? @relation(fields: [assigneeId], references: [id])
+  project      Projects        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  taskImages   TaskImages[]
+  taskComments TaskComments[]
 
   @@index([projectId])
   @@index([assigneeId])
@@ -100,6 +104,22 @@ model TaskImages {
 
   //Relation
   task Tasks @relation(fields: [taskId], references: [id], onDelete: Cascade)
+}
+
+model TaskComments {
+  id        String   @id @default(uuid())
+  taskId    String   @map("task_id")
+  userId    String   @map("user_id")
+  content   String
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  task Tasks @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user Users @relation(fields: [userId], references: [id])
+
+  @@index([taskId, createdAt])
+  @@index([userId])
 }
 
 model Authentications {
@@ -157,19 +177,23 @@ model ActivityLogs {
   actorId      String
   targetUserId String?
 
-  entityType String
-  entityId   String
+  entityType  String
+  entityId    String
+  entityTitle String?
 
-  projectId String
+  projectId   String
+  projectName String?
 
-  message String
+  message String?
 
   createdAt DateTime @default(now())
 
-  @@index([projectId, createdAt])
+  actor      Users  @relation("ActivityLogActor", fields: [actorId], references: [id])
+  targetUser Users? @relation("ActivityLogTarget", fields: [targetUserId], references: [id])
+
   @@index([actorId])
   @@index([targetUserId])
-  @@index([type])
+  @@index([projectId])
 }
 
 enum ProjectRole {

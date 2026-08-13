@@ -1,6 +1,7 @@
 import { ForbiddenError, NotFoundError } from '../../exceptions/errors.js';
 import { getProjectById, getProjectByIdfromAll, getProjectMemberByMemberId, getProjectMemberByUserId } from '../../modules/project/repository/projectRepository.js';
 import { getTaskById } from '../../modules/task/repository/taskRepository.js';
+import { getTaskCommentById } from '../../modules/taskcomment/repository/taskCommentRepository.js';
 
 export const checkProjectRole = (allowedRoles = [], all = false) => {
   return async (req, res, next) => {
@@ -26,7 +27,7 @@ export const checkProjectRole = (allowedRoles = [], all = false) => {
 
     if (!member) return next(new ForbiddenError('User is not a member of this project'));
 
-    if(!member.isActive) return next(new ForbiddenError('Inactive member of this project'));
+    if (!member.isActive) return next(new ForbiddenError('Inactive member of this project'));
 
     if (!allowedRoles.includes(member.role)) {
       return next(new ForbiddenError('You are not authorized to perform this action'));
@@ -56,6 +57,8 @@ export const checkProjectRoleForTask = (allowedRoles = [], all = false) => {
     const project = await getProjectById(projectId);
 
     if (!project) return next(new NotFoundError('Project is not found'));
+
+    console.log(`userId in checkProjectRole : ${userId}`);
 
     const member = await getProjectMemberByUserId(projectId, userId);
 
@@ -115,3 +118,63 @@ export const checkProjectRoleForUpdateStatusTask = (allowedRoles = [], all = fal
   };
 };
 
+export const checkTaskCommentPermission = ({
+  allowLeader = false,
+  allowCommentOwner = false,
+} = {}) => {
+  return async (req, res, next) => {
+    try {
+      const userId = req.user.id;
+      const { taskId, commentId } = req.params;
+
+      const comment = await getTaskCommentById(commentId);
+
+      if (!comment) {
+        throw new NotFoundError("Comment not found");
+      }
+
+      if (comment.taskId !== taskId) {
+        if (!task) throw new NotFoundError('Task is not found');
+      }
+
+      const task = await getTaskById(taskId);
+
+      if (!task) {
+        throw new NotFoundError("Task not found");
+      }
+
+      const project = await getProjectById(task.projectId);
+
+      if (!project) {
+        throw new NotFoundError("Project not found");
+      }
+
+      const member = await getProjectMemberByUserId(task.projectId, userId);
+
+      if (!member) {
+        throw new ForbiddenError("User is not a member of this project");
+      }
+
+      const isLeader = member.role === "LEADER";
+      const isCommentOwner = comment.userId === userId;
+
+      const authorized =
+        (allowLeader && isLeader) ||
+        (allowCommentOwner && isCommentOwner);
+
+      if (!authorized) {
+        throw new ForbiddenError(
+          "You are not authorized to perform this action"
+        );
+      }
+
+      // Save frequently used data
+      req.taskComment = comment;
+      req.taskProjectId = task.projectId;
+
+      next();
+    } catch (error) {
+      next(error);
+    }
+  };
+};

@@ -174,6 +174,19 @@ export const editProjectService = async ({ userId, projectId, data }) => {
     if (!project) throw new NotFoundError('Project not found')
     if (project.owner !== userId) throw new ForbiddenError("You are not a member of this project")
     const { id, name } = await editProject(projectId, data)
+
+    //publish project.updated event to queue
+    await publishEvent({
+        id: 'event-' + generateEventId(),
+        type: 'project.updated',
+        actorId: userId,
+        occurredAt: new Date().toISOString(),
+        payload: {
+            projectId: id,
+            projectName: name,
+        }
+    });
+
     return ({ projectId: id, name })
 }
 
@@ -208,6 +221,19 @@ export const restoreSoftDeletedProjectService = async ({ userId, projectId }) =>
     const res = await editProject(projectId, {
         deletedAt: null
     });
+
+    //publish project.restored event to queue
+    await publishEvent({
+        id: 'event-' + generateEventId(),
+        type: 'project.restored',
+        actorId: userId,
+        occurredAt: new Date().toISOString(),
+        payload: {
+            projectId: res.id,
+            projectName: res.name,
+        }
+    });
+
     return res
 }
 
@@ -218,6 +244,18 @@ export const deleteProjectService = async ({ userId, projectId }) => {
     if (project.owner !== userId) throw new ForbiddenError("You are not owner of this project")
     if (project.deletedAt === null) throw new BadRequestError("You can only delete a project that has been soft deleted")
     await deleteProject(projectId)
+
+    //publish project.permanent.deleted event to queue
+    await publishEvent({
+        id: 'event-' + generateEventId(),
+        type: 'project.permanent.deleted',
+        actorId: userId,
+        occurredAt: new Date().toISOString(),
+        payload: {
+            projectId: project.projectId,
+            projectName: project.name,
+        }
+    });
 }
 
 export const getProjectStatisticsService = async (projectId) => {

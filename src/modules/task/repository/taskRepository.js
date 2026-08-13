@@ -3,7 +3,14 @@ import prisma from "../../../db/db.js";
 export const addTask = async (data) => {
   return await prisma.tasks.create({
     data,
-  },);
+    include: {
+      project: {
+        select: {
+          name: true,
+        }
+      }
+    }
+  });
 };
 
 export const addTaskImage = async (data) => {
@@ -110,7 +117,8 @@ export const getAllTasks = async (status, { userId, page, limit, filter = {}, so
       status: res.status,
       priority: res.priority,
       startDate: res.startDate,
-      dueDate: res.dueDate
+      dueDate: res.dueDate,
+      deletedAt: res.deletedAt
     };
 
     if (res.assignee) {
@@ -220,6 +228,13 @@ export const softDeleteTask = async (id) => {
   return await prisma.tasks.update({
     where: { id },
     data: { deletedAt: new Date() },
+    include: {
+      project: {
+        select: {
+          name: true,
+        }
+      }
+    }
   });
 };
 

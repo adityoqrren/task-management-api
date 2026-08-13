@@ -1,6 +1,7 @@
 import express from 'express';
 import errorHandler from './shared/middlewares/errorHandler.js';
 import authRoutes from './modules/auth/authRoutes.js';
+import websocketRoutes from './modules/websocket/websocketRoutes.js';
 import projectRoutes from './modules/project/projectRoutes.js';
 import taskRoutes from './modules/task/taskRoutes.js';
 import userRoutes from './modules/user/userRoutes.js';
@@ -29,6 +30,7 @@ app.use(express.json());
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(specs));
 
 app.use('/api/auth', authRoutes);
+app.use('/api/websocket', websocketRoutes)
 app.use('/api/projects', projectRoutes);
 app.use('/api/tasks', taskRoutes);
 app.use('/api/users', userRoutes);

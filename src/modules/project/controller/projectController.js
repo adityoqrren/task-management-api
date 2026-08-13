@@ -277,6 +277,7 @@ export const handleGetProjectTasks = async (req, res, next) => {
         if (isFromCache) {
             res.header('X-Data-Source', 'cache');
         }
+        //console.log(`tasks here in controller: ${JSON.stringify(tasks[0])}`)
         return successPaginationResponse(res, null, tasks, {
             total: totalTasks,
             page: page,

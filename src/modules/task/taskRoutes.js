@@ -25,13 +25,14 @@ import {
   // handleBulkSoftDeleteTasks,
   // handleBulkMarkTasksCompleted,
   // handleAssignActiveTask
-} from '../task/controller/taskController.js';
+} from './controller/taskController.js';
 import { authenticate } from '../../shared/middlewares/authMiddlewares.js';
 // import { cacheTasks } from '../../shared/middlewares/caching.js';
 import { apiLimiter } from '../../shared/middlewares/rateLimiter.js';
 import { checkProjectRole, checkProjectRoleForTask, checkProjectRoleForUpdateStatusTask } from '../../shared/middlewares/checkProjectRole.js';
 import { validateRequest } from '../../shared/middlewares/validateRequest.js';
 import { assignTaskSchema, updateTaskSchema, updateTaskStatusSchema, updateTaskProgressSchema, postTaskSchema, postTaskImageSchema } from './taskValidation.js';
+import taskCommentRoutes from "../taskcomment/taskCommentRoutes.js";
 import multer from 'multer';
 
 const router = express.Router();
@@ -439,4 +440,6 @@ router.patch('/:taskId', validateRequest(updateTaskSchema), checkProjectRoleForT
  */
 router.delete('/:taskId', checkProjectRoleForTask(['LEADER'], true), handleDeleteTask);
 
+// embed taskCommentRoutes as sub routes
+router.use(taskCommentRoutes);
 export default router;

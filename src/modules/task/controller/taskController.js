@@ -233,6 +233,8 @@ const mapTaskDetail = (task) => {
     priority: task.priority,
     startDate: task.startDate,
     dueDate: task.dueDate,
+    createdAt: task.createdAt,
+    updatedAt: task.updatedAt,
     deletedAt: task.deletedAt,
     taskImages: task.taskImages
   };

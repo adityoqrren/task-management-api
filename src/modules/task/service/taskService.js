@@ -44,7 +44,9 @@ export const addTaskService = async (userId, data) => {
     occurredAt: new Date().toISOString(),
     payload: {
       taskId: addedTask.id,
+      taskTitle: addedTask.title,
       projectId: addedTask.projectId,
+      projectName: addedTask.project?.name ?? null,
     },
   });
 
@@ -159,7 +161,7 @@ export const getTaskByIdService = async ({ taskId, withDeleted }) => {
   };
 };
 
-export const getTasksByIdsService = async ({taskIds, withDeleted}) => {
+export const getTasksByIdsService = async ({ taskIds, withDeleted }) => {
   return await getTasksByIds(taskIds, withDeleted);
 }
 
@@ -351,52 +353,52 @@ export const editTaskService = async ({ userId, taskId, ownerEmail, assigneeUser
         description : ${description}
       `
     });
+  }
 
-    const isNewlyCompleted = (statusUpdate && editedTask.completed) || (data.status === 'DONE' && editedTask.completed);
-    if (isNewlyCompleted) {
-      //publish task.completed event to queue
-      await publishEvent({
-        id: 'event-' + generateEventId(),
-        type: 'task.completed',
-        actorId: userId,
-        occurredAt: new Date().toISOString(),
-        payload: {
-          taskId: editedTask.id,
-          taskTitle: editedTask.title,
-          projectId: editedTask.projectId,
-          projectName: editedTask.project.name,
-          assignedUserId: editedTask.assignee?.userId ?? null,
-          ownerId: editedTask.project.owner,
-        },
-      });
-    } else {
-      //publish task.updated event to queue
-      await publishEvent({
-        id: 'event-' + generateEventId(),
-        type: 'task.updated',
-        actorId: editedTask.project.owner,
-        occurredAt: new Date().toISOString(),
-        payload: {
-          taskId: editedTask.id,
-          taskTitle: editedTask.title,
-          projectId: editedTask.projectId,
-          projectName: editedTask.project.name,
-          assignedUserId: editedTask.assignee?.userId ?? null,
-          ownerId: editedTask.project.owner,
-        },
-      });
+  const isNewlyCompleted = (statusUpdate && editedTask.completed) || (data.status === 'DONE' && editedTask.completed);
+  if (isNewlyCompleted) {
+    //publish task.completed event to queue
+    await publishEvent({
+      id: 'event-' + generateEventId(),
+      type: 'task.completed',
+      actorId: userId,
+      occurredAt: new Date().toISOString(),
+      payload: {
+        taskId: editedTask.id,
+        taskTitle: editedTask.title,
+        projectId: editedTask.projectId,
+        projectName: editedTask.project.name,
+        assignedUserId: editedTask.assignee?.userId ?? null,
+        ownerId: editedTask.project.owner,
+      },
+    });
+  } else {
+    //publish task.updated event to queue
+    await publishEvent({
+      id: 'event-' + generateEventId(),
+      type: 'task.updated',
+      actorId: editedTask.project.owner,
+      occurredAt: new Date().toISOString(),
+      payload: {
+        taskId: editedTask.id,
+        taskTitle: editedTask.title,
+        projectId: editedTask.projectId,
+        projectName: editedTask.project.name,
+        assignedUserId: editedTask.assignee?.userId ?? null,
+        ownerId: editedTask.project.owner,
+      },
+    });
 
-      // send email to owner
-      await sendEmailMessage({
-        to: ownerEmail,
-        subject: "Task Updated",
-        text: `
+    // send email to owner
+    await sendEmailMessage({
+      to: ownerEmail,
+      subject: "Task Updated",
+      text: `
         Task owned by you (id : ${taskId}) has been updated.
         title : ${title}
         description : ${description}
       `
-      });
-    }
+    });
   }
 
   //TODO: invalidate project task
@@ -451,7 +453,9 @@ export const softDeleteTaskService = async ({ taskId, assigneeUserId, projectId,
     occurredAt: new Date().toISOString(),
     payload: {
       taskId: softDeletedTask.id,
+      taskTitle: softDeletedTask.title,
       projectId: softDeletedTask.projectId,
+      projectName: softDeletedTask.project?.name ?? null,
     },
   });
 
@@ -472,24 +476,48 @@ export const softDeleteTasksByProjectService = async (projectId) => {
 export const restoreSoftDeletedTaskService = async (taskId) => {
   // console.log(`ini user id : ${userId}`)
   // console.log(`ini params id : ${id}`)
+  // console.log(`here in restoreSoftDeletedTaskService ${taskId}`);
   const existing = await getTaskById(taskId, true)
   if (!existing) throw new NotFoundError('Task not found');
   if (existing.deletedAt == null) throw new BadRequestError('Task not yet deleted');
   //console.log(`assignee id : ${existing.assigneeId}`);
-  const projectMember = await getProjectMemberByMemberIdService({ projectId: existing.projectId, memberId: existing.assigneeId });
+
+  let projectMember = null;
   const data = {
     deletedAt: null,
   }
-  // if projectMember is not active and task has not been done yet
-  //console.log(`isActive : ${projectMember.isActive} | completed : ${existing.completed}`);
-  if (!projectMember.isActive && !existing.completed) {
-    data.assigneeId = null;
+
+  //if task has been assigned
+  if (existing.assigneeId) {
+    projectMember = await getProjectMemberByMemberIdService({ projectId: existing.projectId, memberId: existing.assigneeId });
+    // if projectMember is null (member has exited) or member not active and task has not been done yet
+    //console.log(`isActive : ${projectMember.isActive} | completed : ${existing.completed}`);
+    if (!projectMember || (!projectMember.isActive && !existing.completed)) {
+      data.assigneeId = null;
+    }
   }
+
   //console.log(`data: ${data.assigneeId}`);
   const updatedTask = await editTask(taskId, data);
 
+  //publish event task.restored
+  await publishEvent({
+    id: 'event-' + generateEventId(),
+    type: 'task.restored',
+    actorId: updatedTask.project.owner,
+    occurredAt: new Date().toISOString(),
+    payload: {
+      taskId: updatedTask.id,
+      taskTitle: updatedTask.title,
+      projectId: updatedTask.projectId,
+      projectName: updatedTask.project.name,
+      assignedUserId: updatedTask.assignee?.userId ?? null,
+      ownerId: updatedTask.project.owner,
+    },
+  });
+
   //invalidate user cache
-  if (projectMember.isActive) {
+  if (projectMember) {
     const cacheGroupKey = `tasks_cache_group:user:${projectMember.userId}`;
     const keys = await redisClient.getCacheGroup(cacheGroupKey);
     if (keys.length) {
@@ -541,6 +569,19 @@ export const deleteTaskService = async ({ userId, taskId }) => {
   // );
   // const deleteOnRedis2 = await redis.del(`tasks:${deletedTask.userId}:${deletedTask.projectId}`);
   // console.log(`deleted data on redis : ${deleteOnRedis} - ${deleteOnRedis2}`);
+  //publish task.permanent.deleted event to queue
+  await publishEvent({
+    id: 'event-' + generateEventId(),
+    type: 'task.permanent.deleted',
+    actorId: userId,
+    occurredAt: new Date().toISOString(),
+    payload: {
+      taskId: deletedTask.id,
+      taskTitle: deletedTask.title,
+      projectId: deletedTask.projectId,
+      projectName: existing.project.name,
+    },
+  });
   await updateProjectLastActivityService(deletedTask.projectId);
   return deletedTask;
 };
