@@ -184,6 +184,8 @@ model ActivityLogs {
   projectId   String
   projectName String?
 
+  taskId String?
+
   message String?
 
   createdAt DateTime @default(now())
@@ -194,6 +196,7 @@ model ActivityLogs {
   @@index([actorId])
   @@index([targetUserId])
   @@index([projectId])
+  @@index([taskId])
 }
 
 enum ProjectRole {

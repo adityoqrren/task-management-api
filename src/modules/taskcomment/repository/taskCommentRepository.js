@@ -26,20 +26,37 @@ const taskCommentInclude = {
 
 export const getTaskComments = async ({
   taskId,
-  page,
+  cursor,
   limit,
 }) => {
-  const skip = limit > 0 ? (page - 1) * limit : undefined;
+  const where = {
+    taskId,
+  };
 
-  return prisma.taskComments.findMany({
-    where: {
-      taskId,
-    },
-    select: {
-      id: true,
-      content: true,
-      createdAt: true,
-      updatedAt: true,
+  if (cursor) {
+    where.OR = [
+      {
+        createdAt: {
+          lt: new Date(cursor.createdAt),
+        },
+      },
+      {
+        createdAt: new Date(cursor.createdAt),
+        id: {
+          lt: cursor.id,
+        },
+      },
+    ];
+  }
+
+  const comments = await prisma.taskComments.findMany({
+    where,
+    orderBy: [
+      { createdAt: "desc" },
+      { id: "desc" },
+    ],
+    take: limit + 1,
+    include: {
       user: {
         select: {
           id: true,
@@ -47,12 +64,18 @@ export const getTaskComments = async ({
         },
       },
     },
-    orderBy: {
-      createdAt: "desc",
-    },
-    skip,
-    take: limit || undefined,
   });
+
+  const hasNext = comments.length > limit;
+
+  if (hasNext) {
+    comments.pop();
+  }
+
+  return {
+    comments,
+    hasNext
+  };
 };
 
 export const countTaskComments = async (taskId) => {

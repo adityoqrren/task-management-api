@@ -12,25 +12,19 @@ export const handleGetTaskComments = async (req, res, next) => {
   try {
     const { taskId } = req.params;
 
-    const limit = parseInt(req.query.limit, 10) || 0;
-    const page = parseInt(req.query.page, 10) || 1;
+    const limit = parseInt(req.query.limit, 10) || 5;
+    const cursor = req.query.cursor || null;
 
-    const { comments, total: totalComments } = await getTaskCommentsService({
+    const { comments, total: totalComments, nextCursor } = await getTaskCommentsService({
       taskId,
-      page,
-      limit
+      limit,
+      cursor
     });
-
-    const totalPages = (limit) ? Math.ceil(totalComments / limit) : (totalComments > 0) ? 1 : 0;
-    if (totalPages > 0 && page > totalPages) throw new BadRequestError("Page is over from limit");
 
     return successPaginationResponse(res, null, comments, {
       total: totalComments,
-      page: page,
-      totalPages,
       limit,
-      hasPrev: (limit > 0) ? (page > 1) : false,
-      hasNext: (limit > 0) ? (page < totalPages) : false
+      nextCursor
     });
   } catch (error) {
     next(error);
@@ -50,10 +44,14 @@ export const handlePostTaskComment = async (req, res, next) => {
     });
 
     return successResponse(res, "comment created", {
-      commentId: comment.id,
+      id: comment.id,
       taskId: comment.taskId,
-      content: comment.content
-    },201);
+      userId: comment.userId,
+      content: comment.content,
+      createdAt: comment.createdAt,
+      updatedAt: comment.updatedAt,
+      user: comment.user,
+    }, 201);
   } catch (error) {
     next(error);
   }

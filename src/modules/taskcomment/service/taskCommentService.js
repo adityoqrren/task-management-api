@@ -9,6 +9,7 @@ import {
 import { updateProjectLastActivityService } from "../../project/service/projectService.js";
 import publishEvent from "../../../queue/event/eventPublisher.js";
 import { generateEventId } from "../../../shared/utils/uuid.js";
+import { decodeCursor, encodeCursor } from "../../../shared/utils/cursor.js";
 
 const COMMENT_PREVIEW_LENGTH = 100;
 
@@ -22,17 +23,32 @@ const getCommentPreview = (content) => {
 
 export const getTaskCommentsService = async ({
   taskId,
-  page,
+  cursor,
   limit,
 }) => {
-  const [comments, total] = await Promise.all([
-    getTaskComments({ taskId, page, limit }),
+  const decodedCursor = cursor
+    ? decodeCursor(cursor)
+    : null;
+
+  const [getTaskCommentResult, total] = await Promise.all([
+    getTaskComments({ taskId, cursor: decodedCursor, limit }),
     countTaskComments(taskId),
   ]);
+
+  const { comments, hasNext } = getTaskCommentResult;
+
+  const nextCursor =
+    comments.length > 0 && hasNext
+      ? encodeCursor({
+        createdAt: comments[comments.length - 1].createdAt,
+        id: comments[comments.length - 1].id,
+      })
+      : null;
 
   return {
     comments,
     total,
+    nextCursor
   };
 };
 
