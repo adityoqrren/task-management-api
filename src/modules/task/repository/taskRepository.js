@@ -13,13 +13,16 @@ export const addTask = async (data) => {
   });
 };
 
-export const addTaskImage = async (data) => {
-  return await prisma.taskImages.create({
-    data, include: {
+export const addTaskAttachment = async (data) => {
+  return await prisma.taskAttachments.create({
+    data,
+    include: {
       task: true,
     }
   });
-}
+};
+
+export const addTaskImage = addTaskAttachment;
 
 export const getAllTasks = async (status, { userId, page, limit, filter = {}, sortBy, order, include }) => {
   console.log(`userId : ${userId} | status ${status} | page ${page} | limit ${limit} | filter ${filter} | sortBy ${sortBy} | order ${order} | include ${include}`);
@@ -48,13 +51,6 @@ export const getAllTasks = async (status, { userId, page, limit, filter = {}, so
   }
 
   const includeRelations = {
-    // user: {
-    //   select: {
-    //     id: true,
-    //     name: true,
-    //     email: true
-    //   }
-    // },
     project: {
       select: {
         id: true,
@@ -95,13 +91,7 @@ export const getAllTasks = async (status, { userId, page, limit, filter = {}, so
     orderBy,
   };
 
-  //we only can use one between select and include    
-  // if (select) {
-  //   baseQuery.select = select
-  // }
-  // else {
-  baseQuery.include = includeRelations
-  // }
+  baseQuery.include = includeRelations;
 
   const result = await prisma.tasks.findMany(baseQuery);
 
@@ -139,7 +129,7 @@ export const getAllTasks = async (status, { userId, page, limit, filter = {}, so
   return { tasks, totalTasks };
 };
 
-export const getTaskById = async (id, withDeleted) => {
+export const getTaskById = async (id, withDeleted, includeAttachments = false) => {
   const where = {
     id,
     ...(withDeleted ? {} : { deletedAt: null }), // hanya tambah filter jika tidak withDeleted
@@ -148,7 +138,7 @@ export const getTaskById = async (id, withDeleted) => {
   const result = await prisma.tasks.findFirst({
     where,
     include: {
-      taskImages: true,
+      ...(includeAttachments ? { taskAttachments: true } : {}),
       project: {
         select: {
           id: true,
@@ -183,26 +173,53 @@ export const getTasksByIds = async (taskIds, withDeleted) => await prisma.tasks.
 });
 
 
-export const getTaskImageById = async (id) => {
+export const getTaskAttachmentById = async (taskId, attachmentId) => {
   const where = {
-    id,
+    id: attachmentId,
+    taskId,
   };
 
-  const result = await prisma.taskImages.findFirst({
+  const result = await prisma.taskAttachments.findFirst({
     where,
     include: {
       task: true,
+      user: true
     },
   });
 
   return result;
 };
 
+export const getTaskImageById = getTaskAttachmentById;
+
+export const getTaskAttachmentsByTaskId = async (taskId, type = 'all') => {
+  const where = { taskId };
+  if (type === 'image') {
+    where.mimeType = { startsWith: 'image/' };
+  } else if (type === 'file') {
+    where.NOT = { mimeType: { startsWith: 'image/' } };
+  }
+
+  return await prisma.taskAttachments.findMany({
+    where,
+    include: {
+      user: {
+        select: {
+          id: true,
+          username: true,
+          name: true,
+        }
+      }
+    },
+    orderBy: { createdAt: 'desc' },
+  });
+};
+
 export const editTask = async (id, data) => {
   // console.log(`data : ${data}`);
   return await prisma.tasks.update({
     where: { id }, data, include: {
-      taskImages: true,
+      taskAttachments: true,
       assignee: {
         select: {
           userId: true,
@@ -264,9 +281,11 @@ export const restoreSoftDeletedTasksByProjectId = async (projectId) => {
   return totalUpdated;
 }
 
-export const deleteTaskImage = async (id) => {
-  return await prisma.taskImages.delete({ where: { id } });
+export const deleteTaskAttachment = async (id) => {
+  return await prisma.taskAttachments.delete({ where: { id } });
 };
+
+export const deleteTaskImage = deleteTaskAttachment;
 
 export const deleteTask = async (id) => {
   return await prisma.tasks.delete({ where: { id } });

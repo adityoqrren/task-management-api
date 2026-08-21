@@ -28,6 +28,7 @@ model Users {
   activities       ActivityLogs[]   @relation("ActivityLogActor")
   targetActivities ActivityLogs[]   @relation("ActivityLogTarget")
   taskComments     TaskComments[]
+  taskAttachments  TaskAttachments[]
 }
 
 model Projects {
@@ -82,10 +83,10 @@ model Tasks {
   deletedAt   DateTime?    @map("deleted_at")
 
   //Relation
-  assignee     ProjectMembers? @relation(fields: [assigneeId], references: [id])
-  project      Projects        @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  taskImages   TaskImages[]
-  taskComments TaskComments[]
+  assignee        ProjectMembers?   @relation(fields: [assigneeId], references: [id])
+  project         Projects          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  taskAttachments TaskAttachments[]
+  taskComments    TaskComments[]
 
   @@index([projectId])
   @@index([assigneeId])
@@ -94,16 +95,23 @@ model Tasks {
   @@index([dueDate])
 }
 
-model TaskImages {
-  id         String @id @default(uuid())
-  taskId     String @map("task_id")
-  imageTitle String @map("image_title")
-  // imageUrl   String @map("image_url")
-  bucketKey  String @map("bucket_key")
-  objectKey  String @map("object_key")
+model TaskAttachments {
+  id        String   @id @default(uuid())
+  taskId    String   @map("task_id")
+  userId    String   @map("user_id")
+  fileName  String   @map("file_name")
+  bucketKey String   @map("bucket_key")
+  objectKey String   @map("object_key")
+  mimeType  String   @map("mime_type")
+  size      Int
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
-  //Relation
   task Tasks @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user Users @relation(fields: [userId], references: [id])
+
+  @@index([taskId])
+  @@index([userId])
 }
 
 model TaskComments {

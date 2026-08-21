@@ -12,7 +12,10 @@ import {
   bulkMarkCompletedService,
   softDeleteTasksByProjectService,
   assignActiveTaskService,
+  addTaskAttachmentService,
   addTaskImageService,
+  getTaskAttachmentsService,
+  deleteTaskAttachmentService,
   deleteTaskImageService,
   getAllTasksByUserIdService,
   getUserTaskCountsService
@@ -40,51 +43,43 @@ export const handlePostTask = async (req, res, next) => {
   }
 };
 
-export const handlePostImageTask = async (req, res, next) => {
+// task attachment handling (post)
+export const handlePostTaskAttachment = async (req, res, next) => {
   try {
     const taskId = req.params.taskId;
-    const { imageTitle } = req.body;
-
-    // console.log(`taskId : ${taskId} | imageTitle : ${imageTitle}`);
+    const userId = req.user.id;
+    const { fileName, imageTitle } = req.body;
 
     const file = req.file;
     if (!file) {
-      return new BadRequestError("Image file is required");
+      throw new BadRequestError("File is required");
     }
 
-    // Cek MIME type
-    const allowedMime = ["image/jpeg", "image/png", "image/webp"];
     const fileMimeType = file.mimetype;
-
-    if (!allowedMime.includes(fileMimeType)) {
-      throw new BadRequestError("Invalid file type");
-    }
-
-    // Cek ukuran file
-    const maxSize = 2 * 1024 * 1024; // 2MB
-    if (file.size > maxSize) {
-      throw new BadRequestError("File too large (max 2MB)");
-    }
-
+    const size = file.size;
     const originalName = file.originalname;
+    const finalFileName = fileName || imageTitle || originalName;
     const fileBuffer = file.buffer;
     const ext = path.extname(originalName);
-    // buat key / nama objek di bucket
     const objectKey = `uploads/${Date.now()}_${Math.random().toString(36).substr(2, 6)}${ext}`;
 
-    const taskImage = await addTaskImageService({
+    const attachment = await addTaskAttachmentService({
       taskId,
-      imageTitle,
+      userId,
+      fileName: finalFileName,
       fileBuffer,
       objectKey,
-      fileMimeType
+      fileMimeType,
+      size,
     });
 
-    return successResponse(res, "task created", taskImage, 201);
+    return successResponse(res, "Task attachment uploaded successfully", attachment, 201);
   } catch (error) {
     next(error);
   }
 };
+
+export const handlePostImageTask = handlePostTaskAttachment;
 
 export const handleAssignActiveTask = async (req, res, next) => {
   const ownerEmail = req.user.email;
@@ -236,8 +231,11 @@ const mapTaskDetail = (task) => {
     createdAt: task.createdAt,
     updatedAt: task.updatedAt,
     deletedAt: task.deletedAt,
-    taskImages: task.taskImages
   };
+
+  if (task.taskAttachments !== undefined) {
+    mapped.taskAttachments = task.taskAttachments;
+  }
 
   if (task.assignee) {
     mapped.assignee = {
@@ -256,11 +254,24 @@ const mapTaskDetail = (task) => {
   return mapped;
 };
 
+export const handleGetTaskAttachments = async (req, res, next) => {
+  try {
+    const { taskId } = req.params;
+    const { type = 'all' } = req.query;
+
+    const attachments = await getTaskAttachmentsService({ taskId, type });
+    return successResponse(res, "Task attachments retrieved successfully", attachments);
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const handleGetTaskById = async (req, res, next) => {
   try {
     //task id
     const taskId = req.params.taskId;
-    const task = await getTaskByIdService({ taskId, withDeleted: false });
+    const includeAttachments = req.query.includeAttachments === 'true' || req.query.include === 'attachments';
+    const task = await getTaskByIdService({ taskId, withDeleted: false, includeAttachments });
 
     // if (!task) return res.status(404).json({ message: 'Task not found' });
 
@@ -274,7 +285,8 @@ export const handleGetTaskByIdFromAll = async (req, res, next) => {
   try {
     //task id
     const taskId = req.params.taskId;
-    const task = await getTaskByIdService({ taskId, withDeleted: true });
+    const includeAttachments = req.query.includeAttachments === 'true' || req.query.include === 'attachments';
+    const task = await getTaskByIdService({ taskId, withDeleted: true, includeAttachments });
 
     // if (!task) return res.status(404).json({ message: 'Task not found' });
 
@@ -344,22 +356,25 @@ export const handleRestoreSoftDeletedTask = async (req, res, next) => {
   }
 };
 
-export const handleDeleteTaskImage = async (req, res, next) => {
+// task attachment handling (delete)
+export const handleDeleteTaskAttachment = async (req, res, next) => {
   try {
-    const { imageId } = req.params;
+    const { taskId, attachmentId, imageId } = req.params;
+    const targetId = attachmentId || imageId;
 
-    if (!imageId) {
-      throw new BadRequestError({ message: 'imageId are required' });
+    if (!targetId) {
+      throw new BadRequestError('attachmentId is required');
     }
 
-    // You should implement deleteTaskImageService in your service layer
-    await deleteTaskImageService(imageId);
+    await deleteTaskAttachmentService({ taskId, attachmentId: targetId });
 
-    return successResponse(res, "Task image deleted successfully");
+    return successResponse(res, "Task attachment deleted successfully");
   } catch (error) {
     next(error);
   }
 };
+
+export const handleDeleteTaskImage = handleDeleteTaskAttachment;
 
 export const handleDeleteTask = async (req, res, next) => {
   try {

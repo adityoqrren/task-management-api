@@ -15,8 +15,20 @@ export const postTaskSchema = z.object({
 
 export const postTaskImageSchema = z.object({
     body: z.object({
-        imageTitle: z.string().min(4, "Image title must be at least 4 chars")
-            .refine(val => val.trim().length > 0, { message: "Title cannot be only whitespace" }),
+        imageTitle: z.string().min(1, "Title must be at least 1 char").optional(),
+        fileName: z.string().min(1, "File name must be at least 1 char").optional(),
+    }),
+});
+
+export const postTaskAttachmentSchema = z.object({
+    body: z.object({
+        fileName: z.string().min(1, "File name must be at least 1 char").optional(),
+    }),
+});
+
+export const getTaskAttachmentsQuerySchema = z.object({
+    query: z.object({
+        type: z.enum(["all", "image", "file"]).optional().default("all"),
     }),
 });
 

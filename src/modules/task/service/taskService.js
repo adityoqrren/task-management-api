@@ -3,7 +3,7 @@
 import { BadRequestError, NotFoundError } from "../../../exceptions/errors.js";
 import { getProjectMemberByMemberIdService, getProjectMembersService, updateProjectLastActivityService } from "../../project/service/projectService.js";
 import { makeError } from "../../../shared/utils/response.js";
-import { bulkMarkTasksCompleted, bulkSoftDeleteTasks, addTask, deleteTask, findValidTasksByIds, getAllTasks, getTaskById, softDeleteTask, editTask, softDeleteTasksByProjectId, restoreSoftDeletedTasksByProjectId, addTaskImage, getTaskImageById, deleteTaskImage, getTasksByIds, getTaskStatisticsByProjectId, getUserTaskCounts } from "../repository/taskRepository.js";
+import { bulkMarkTasksCompleted, bulkSoftDeleteTasks, addTask, deleteTask, findValidTasksByIds, getAllTasks, getTaskById, softDeleteTask, editTask, softDeleteTasksByProjectId, restoreSoftDeletedTasksByProjectId, addTaskAttachment, addTaskImage, getTaskAttachmentById, getTaskImageById, getTaskAttachmentsByTaskId, deleteTaskAttachment, deleteTaskImage, getTasksByIds, getTaskStatisticsByProjectId, getUserTaskCounts } from "../repository/taskRepository.js";
 import StorageService from "../../../storage/storageService.js";
 import CacheService from "../../../cache/cacheService.js";
 import { sendEmailMessage } from "../../../queue/emailProducer.js";
@@ -54,25 +54,36 @@ export const addTaskService = async (userId, data) => {
   return addedTask;
 };
 
-export const addTaskImageService = async ({ taskId, imageTitle, fileBuffer, objectKey, fileMimeType }) => {
+export const addTaskAttachmentService = async ({ taskId, userId, fileName, fileBuffer, objectKey, fileMimeType, size }) => {
   // upload to bucket
   const presignedUrlFromBucket = await storageService.writeFile(fileBuffer, objectKey, fileMimeType);
-  // add image info to db
-  const addImageToDb = await addTaskImage({
+  // add attachment info to db
+  const attachment = await addTaskAttachment({
     taskId,
-    imageTitle,
-    objectKey,
+    userId,
+    fileName,
     bucketKey: process.env.R2_BUCKET_NAME,
+    objectKey,
+    mimeType: fileMimeType,
+    size,
   });
-  await updateProjectLastActivityService(addImageToDb.task.projectId);
+  await updateProjectLastActivityService(attachment.task.projectId);
   return {
+    id: attachment.id,
     taskId,
-    projectId: addImageToDb.task.projectId,
-    taskTitle: addImageToDb.task.title,
-    imageTitle,
-    imageUrl: presignedUrlFromBucket,
-  }
+    userId,
+    projectId: attachment.task.projectId,
+    taskTitle: attachment.task.title,
+    fileName: attachment.fileName,
+    mimeType: attachment.mimeType,
+    size: attachment.size,
+    fileUrl: presignedUrlFromBucket,
+    createdAt: attachment.createdAt,
+    updatedAt: attachment.updatedAt,
+  };
 };
+
+export const addTaskImageService = addTaskAttachmentService;
 
 //TODO: if getAllTasksByProjectIdService and getAllTasksByUserIdService have many similar code, refactor it
 export const getAllTasksService = async (status, queryParams) => {
@@ -139,26 +150,53 @@ export const getAllTasksByUserIdService = async ({ isSimpleQuery, status, queryP
 
 }
 
-export const getTaskByIdService = async ({ taskId, withDeleted }) => {
-  const task = await getTaskById(taskId, withDeleted);
+export const getTaskByIdService = async ({ taskId, withDeleted, includeAttachments = false }) => {
+  const task = await getTaskById(taskId, withDeleted, includeAttachments);
   if (!task) throw new NotFoundError('Task not found');
-  const storageService = new StorageService();
 
-  const taskImagesWithUrl = await Promise.all(task.taskImages.map(async (taskImage) => {
-    const imageUrl = await storageService.createPreSignedUrl({
-      bucket: taskImage.bucketKey,
-      key: taskImage.objectKey,
+  if (includeAttachments && task.taskAttachments) {
+    const storageService = new StorageService();
+    const taskAttachmentsWithUrl = await Promise.all(task.taskAttachments.map(async (attachment) => {
+      const { bucketKey, objectKey, ...attachmentDetail } = attachment;
+      const fileUrl = await storageService.createPreSignedUrl({
+        bucket: bucketKey,
+        key: objectKey,
+      });
+      return {
+        ...attachmentDetail,
+        fileUrl,
+      };
+    }));
+
+    const { taskAttachments, ...taskDetail } = task;
+    return {
+      ...taskDetail,
+      taskAttachments: taskAttachmentsWithUrl,
+    };
+  }
+
+  const { taskAttachments, ...taskDetail } = task;
+  return taskDetail;
+};
+
+export const getTaskAttachmentsService = async ({ taskId, type = 'all' }) => {
+  const task = await getTaskById(taskId, false);
+  if (!task) throw new NotFoundError('Task not found');
+
+  const attachments = await getTaskAttachmentsByTaskId(taskId, type);
+  const attachmentsWithUrl = await Promise.all(attachments.map(async (attachment) => {
+    const { bucketKey, objectKey, ...detail } = attachment;
+    const fileUrl = await storageService.createPreSignedUrl({
+      bucket: bucketKey,
+      key: objectKey,
     });
     return {
-      ...taskImage,
-      imageUrl
+      ...detail,
+      fileUrl,
     };
   }));
 
-  return {
-    ...task,
-    taskImages: taskImagesWithUrl
-  };
+  return attachmentsWithUrl;
 };
 
 export const getTasksByIdsService = async ({ taskIds, withDeleted }) => {
@@ -546,17 +584,21 @@ export const restoreSoftDeletedTasksByProjectIdService = async ({ userId, projec
   return totalTasks;
 }
 
-export const deleteTaskImageService = async (imageId) => {
-  const existing = await getTaskImageById(imageId);
-  if (!existing) throw new NotFoundError('Image not found');
+export const deleteTaskAttachmentService = async ({ taskId, attachmentId }) => {
+  const existing = await getTaskAttachmentById(taskId, attachmentId);
+  if (!existing) throw new NotFoundError('Attachment not found');
   const deleteFromBucket = await storageService.deleteFile(existing.objectKey);
   if (!deleteFromBucket.success) {
-    throw new BadRequestError('Failed to delete image from storage');
+    throw new BadRequestError('Failed to delete file from storage');
   }
-  const deletedImage = await deleteTaskImage(imageId);
+  const deletedAttachment = await deleteTaskAttachment(attachmentId);
   await updateProjectLastActivityService(existing.task.projectId);
-  return deletedImage;
-}
+  return deletedAttachment;
+};
+
+export const deleteTaskImageService = async ({ taskId, imageId }) => {
+  return await deleteTaskAttachmentService({ taskId, attachmentId: imageId });
+};
 
 export const deleteTaskService = async ({ userId, taskId }) => {
   const existing = await getTaskById(taskId, true);
