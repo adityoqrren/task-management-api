@@ -256,8 +256,9 @@ export const softDeleteTask = async (id) => {
 };
 
 
-export const softDeleteTasksByProjectId = async (projectId) => {
-  return await prisma.tasks.updateMany({
+export const softDeleteTasksByProjectId = async (projectId, tx) => {
+  const client = tx ?? prisma;
+  return await client.tasks.updateMany({
     where: {
       projectId,
       deletedAt: null, // Optional: hanya yang belum soft delete
@@ -268,8 +269,9 @@ export const softDeleteTasksByProjectId = async (projectId) => {
   });
 };
 
-export const restoreSoftDeletedTasksByProjectId = async (projectId) => {
-  const totalUpdated = await prisma.tasks.updateMany({
+export const restoreSoftDeletedTasksByProjectId = async (projectId, tx) => {
+  const client = tx ?? prisma;
+  const totalUpdated = await client.tasks.updateMany({
     where: {
       projectId,
     },
@@ -294,7 +296,7 @@ export const deleteTask = async (id) => {
 /*-------------Bulk Operations----------------*/
 
 export const bulkSoftDeleteTasks = async (userId, taskIds) => {
-  return await prisma.task.updateMany({
+  return await prisma.tasks.updateMany({
     where: {
       id: { in: taskIds },
       userId,
@@ -306,9 +308,9 @@ export const bulkSoftDeleteTasks = async (userId, taskIds) => {
   });
 };
 
-export const bulkMarkTasksCompleted = async (userId, taskIds) => {
-  console.log(taskIds);
-  return await prisma.task.updateMany({
+export const bulkMarkTasksCompleted = async (userId, taskIds, tx) => {
+  const client = tx ?? prisma;
+  return await client.tasks.updateMany({
     where: {
       id: { in: taskIds },
       userId,
@@ -321,8 +323,9 @@ export const bulkMarkTasksCompleted = async (userId, taskIds) => {
 };
 
 // Find all tasks that belong to the user, are not soft deleted, and match given IDs
-export const findValidTasksByIds = async (taskIds, userId, condition = {}) => {
-  return prisma.tasks.findMany({
+export const findValidTasksByIds = async (taskIds, userId, condition = {}, tx) => {
+  const client = tx ?? prisma;
+  return client.tasks.findMany({
     where: {
       id: { in: taskIds },
       deletedAt: null,

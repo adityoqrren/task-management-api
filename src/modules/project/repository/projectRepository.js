@@ -1,8 +1,9 @@
 import prisma from "../../../db/db.js";
 
 //Manage project
-export const addProject = async (projectData) => {
-    return await prisma.projects.create({
+export const addProject = async (projectData, tx) => {
+    const client = tx ?? prisma;
+    return await client.projects.create({
         data: {
             name: projectData.name,
             owner: projectData.userId,
@@ -104,20 +105,23 @@ export const getProjectsByIds = async (projectIds, withDeleted) => await prisma.
     select: { id: true, deletedAt: true }
 });
 
-export const editProject = async (id, data) => {
-    return await prisma.projects.update({ where: { id }, data: { ...data, lastActivityAt: new Date() } })
+export const editProject = async (id, data, tx) => {
+    const client = tx ?? prisma;
+    return await client.projects.update({ where: { id }, data: { ...data, lastActivityAt: new Date() } })
 };
 
 //soft delete project
-export const softDeleteProject = async (id) => {
-    return await prisma.projects.update({
+export const softDeleteProject = async (id, tx) => {
+    const client = tx ?? prisma;
+    return await client.projects.update({
         where: { id, deletedAt: null },
         data: { deletedAt: new Date(), lastActivityAt: new Date() },
     });
 };
 
-export const updateProjectLastActivity = async (projectId) => {
-    return await prisma.projects.update({
+export const updateProjectLastActivity = async (projectId, tx) => {
+    const client = tx ?? prisma;
+    return await client.projects.update({
         where: { id: projectId },
         data: { lastActivityAt: new Date() }
     });
@@ -128,8 +132,9 @@ export const deleteProject = async (id) => {
 };
 
 //Manage members of project
-export const addProjectMember = async (data) => {
-    const { id, ...res } = await prisma.projectMembers.create({
+export const addProjectMember = async (data, tx) => {
+    const client = tx ?? prisma;
+    const { id, ...res } = await client.projectMembers.create({
         data, select: {
             id: true,
             projectId: true,

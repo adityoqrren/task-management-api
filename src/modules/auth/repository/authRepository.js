@@ -43,8 +43,9 @@ export const getUserByEmailOrUsername = async (email) => {
     });
 };
 
-export const addRefreshToken = async (userId, tokenHash) => {
-    await prisma.refreshTokens.create({
+export const addRefreshToken = async (userId, tokenHash, tx) => {
+    const client = tx ?? prisma;
+    await client.refreshTokens.create({
         data: {
             userId,
             tokenHash,
@@ -53,8 +54,9 @@ export const addRefreshToken = async (userId, tokenHash) => {
     });
 }
 
-export const updateRefreshToken = async (tokenId) => {
-    return await prisma.refreshTokens.update({
+export const updateRefreshToken = async (tokenId, tx) => {
+    const client = tx ?? prisma;
+    return await client.refreshTokens.update({
         where: { id: tokenId },
         data: { revoked: true },
     });

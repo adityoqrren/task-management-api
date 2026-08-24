@@ -1,5 +1,6 @@
 // import { ta } from "zod/locales";
 // import { redis } from "../../config/redis.js";
+import prisma from "../../../db/db.js";
 import { BadRequestError, NotFoundError } from "../../../exceptions/errors.js";
 import { getProjectMemberByMemberIdService, getProjectMembersService, updateProjectLastActivityService } from "../../project/service/projectService.js";
 import { makeError } from "../../../shared/utils/response.js";
@@ -501,8 +502,8 @@ export const softDeleteTaskService = async ({ taskId, assigneeUserId, projectId,
   return softDeletedTask;
 };
 
-export const softDeleteTasksByProjectService = async (projectId) => {
-  const result = await softDeleteTasksByProjectId(projectId);
+export const softDeleteTasksByProjectService = async (projectId, tx) => {
+  const result = await softDeleteTasksByProjectId(projectId, tx);
   if (result == 0) {
     throw BadRequestError("Failed to delete tasks of this project");
   }
@@ -576,8 +577,8 @@ export const restoreSoftDeletedTaskService = async (taskId) => {
   return updatedTask;
 };
 
-export const restoreSoftDeletedTasksByProjectIdService = async ({ userId, projectId }) => {
-  const totalTasks = restoreSoftDeletedTasksByProjectId(projectId);
+export const restoreSoftDeletedTasksByProjectIdService = async ({ projectId }, tx) => {
+  const totalTasks = await restoreSoftDeletedTasksByProjectId(projectId, tx);
   if (totalTasks == 0) {
     throw BadRequestError("Failed to restore tasks");
   }
@@ -654,21 +655,27 @@ export const bulkSoftDeleteTasksService = async (userId, taskIds) => {
 // Mark tasks completed but we check the valid ids before
 // Perform bulk update: mark tasks as completed
 export const bulkMarkCompletedService = async (taskIds, userId) => {
-  // Step 1: Retrieve valid task IDs
-  const validTasks = await findValidTasksByIds(taskIds, userId, { completed: false });
-  const validIds = validTasks.map(task => task.id);
+  const { validIds } = await prisma.$transaction(async (tx) => {
+    // Step 1: Retrieve valid task IDs
+    const validTasks = await findValidTasksByIds(taskIds, userId, { completed: false }, tx);
+    const validIds = validTasks.map(task => task.id);
 
-  if (validIds.length === 0) {
-    throw makeError('No valid tasks found to update. Maybe status has been completed', 400);
-  }
+    if (validIds.length === 0) {
+      throw makeError('No valid tasks found to update. Maybe status has been completed', 400);
+    }
 
-  // Step 2: Perform bulk update
-  await bulkMarkTasksCompleted(userId, validIds);
+    // Step 2: Perform bulk update
+    await bulkMarkTasksCompleted(userId, validIds, tx);
 
-  const projectIds = [...new Set(validTasks.map(t => t.projectId))];
-  for (const pId of projectIds) {
-    await updateProjectLastActivityService(pId);
-  }
+    const projectIds = [...new Set(validTasks.map(t => t.projectId))];
+
+    // lastActivity touch joins the transaction
+    for (const pId of projectIds) {
+      await updateProjectLastActivityService(pId, tx);
+    }
+
+    return { validIds };
+  });
 
   // Step 3: Identify failed task IDs (not found or invalid)
   const failedIds = taskIds.filter(id => !validIds.includes(id));

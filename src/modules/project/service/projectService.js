@@ -1,4 +1,5 @@
 import { Prisma, ProjectRole } from '@prisma/client';
+import prisma from "../../../db/db.js";
 import { addProject, getProjectsByUserId, getProjectById, editProject, deleteProject, addProjectMember, editProjectMemberById, getAllProjectMembers, updateProjectMemberByProjectUserId, softDeleteProject, getProjectByIdfromAll, getProjectMemberByMemberId, getProjectMemberByUserId, getProjectsByIds, updateProjectLastActivity } from '../repository/projectRepository.js';
 import { getUserByIdService, getUserByNameOrUsernameService } from '../../user/service/userService.js';
 import { BadRequestError, ForbiddenError, NotFoundError } from '../../../exceptions/errors.js';
@@ -11,14 +12,18 @@ import publishEvent from '../../../queue/event/eventPublisher.js';
 const redisClient = new CacheService();
 
 export const addNewProjectService = async ({ name, userId, description }) => {
-    const project = await addProject({ name, userId, description });
+    const project = await prisma.$transaction(async (tx) => {
+        const created = await addProject({ name, userId, description }, tx);
 
-    //insert creator as leader in project's member
-    const projectMember = await addProjectMember({
-        projectId: project.id,
-        userId,
-        role: ProjectRole.LEADER,
-        joinedAt: new Date(),
+        //insert creator as leader in project's member
+        await addProjectMember({
+            projectId: created.id,
+            userId,
+            role: ProjectRole.LEADER,
+            joinedAt: new Date(),
+        }, tx);
+
+        return created;
     });
 
     //publish project.created event to queue
@@ -196,8 +201,10 @@ export const softDeleteProjectService = async ({ userId, projectId }) => {
     // if (project.owner !== userId) throw new ForbiddenError("You are not a member of this project")
 
     // soft delete all tasks in this project
-    await softDeleteTasksByProjectService(projectId);
-    const softDeletedProject = await softDeleteProject(projectId);
+    const softDeletedProject = await prisma.$transaction(async (tx) => {
+        await softDeleteTasksByProjectService(projectId, tx);
+        return await softDeleteProject(projectId, tx);
+    });
 
     //publish project.deleted event to queue
     await publishEvent({
@@ -215,11 +222,12 @@ export const softDeleteProjectService = async ({ userId, projectId }) => {
 
 //TODO: make restoreSoftDeletedProject -> tasks related to it must be restored too
 export const restoreSoftDeletedProjectService = async ({ userId, projectId }) => {
-    // restore related tasks
-    await restoreSoftDeletedTasksByProjectIdService(projectId);
-    // restore project
-    const res = await editProject(projectId, {
-        deletedAt: null
+    // restore related tasks and project in one transaction
+    const res = await prisma.$transaction(async (tx) => {
+        await restoreSoftDeletedTasksByProjectIdService({ userId, projectId }, tx);
+        return await editProject(projectId, {
+            deletedAt: null
+        }, tx);
     });
 
     //publish project.restored event to queue
@@ -281,6 +289,6 @@ export const getRecentProjectTasksService = async (projectId, limit) => {
     return tasks;
 };
 
-export const updateProjectLastActivityService = async (projectId) => {
-    return await updateProjectLastActivity(projectId);
+export const updateProjectLastActivityService = async (projectId, tx) => {
+    return await updateProjectLastActivity(projectId, tx);
 };

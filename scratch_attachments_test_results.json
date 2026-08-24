@@ -1,0 +1,125 @@
+{
+  "uploadImageResponse": {
+    "status": "success",
+    "message": "Task attachment uploaded successfully",
+    "data": {
+      "id": "033fcf73-31bc-47fe-8394-4d222d127fc8",
+      "taskId": "8cbb2ae5-0927-4508-8485-9a2be796208e",
+      "userId": "f6999cc0-23a4-49a8-9812-9f2151c07d66",
+      "projectId": "5b26eaaa-d02c-4114-a60c-31b767336e43",
+      "taskTitle": "Task with Attachments",
+      "fileName": "Sample Screenshot PNG",
+      "mimeType": "image/png",
+      "size": 30,
+      "fileUrl": "https://task-management-files.fa128a149324158cc60dccba844f289e.r2.cloudflarestorage.com/uploads/1787243536401_0weem5.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Content-Sha256=UNSIGNED-PAYLOAD&X-Amz-Credential=098262ae62f89e8f1b17d3178233c876%2F20260820%2Fauto%2Fs3%2Faws4_request&X-Amz-Date=20260820T163216Z&X-Amz-Expires=3600&X-Amz-Signature=2e27a2fee0860e8bbe8da3ee3657b71d785b1e6bee8ccac8b26db69efe5c2b56&X-Amz-SignedHeaders=host&x-amz-checksum-mode=ENABLED&x-id=GetObject",
+      "createdAt": "2026-08-20T16:32:16.785Z",
+      "updatedAt": "2026-08-20T16:32:16.785Z"
+    }
+  },
+  "uploadFileResponse": {
+    "status": "success",
+    "message": "Task attachment uploaded successfully",
+    "data": {
+      "id": "d768f258-11db-49e5-99a8-e549890e5902",
+      "taskId": "8cbb2ae5-0927-4508-8485-9a2be796208e",
+      "userId": "f6999cc0-23a4-49a8-9812-9f2151c07d66",
+      "projectId": "5b26eaaa-d02c-4114-a60c-31b767336e43",
+      "taskTitle": "Task with Attachments",
+      "fileName": "Project Report PDF",
+      "mimeType": "application/pdf",
+      "size": 25,
+      "fileUrl": "https://task-management-files.fa128a149324158cc60dccba844f289e.r2.cloudflarestorage.com/uploads/1787243536806_001skg.pdf?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Content-Sha256=UNSIGNED-PAYLOAD&X-Amz-Credential=098262ae62f89e8f1b17d3178233c876%2F20260820%2Fauto%2Fs3%2Faws4_request&X-Amz-Date=20260820T163217Z&X-Amz-Expires=3600&X-Amz-Signature=63ec23176f55fa3668f3228c4e91ac7ed1eea9033e5e5b7e87bd85c4d57d1c31&X-Amz-SignedHeaders=host&x-amz-checksum-mode=ENABLED&x-id=GetObject",
+      "createdAt": "2026-08-20T16:32:17.140Z",
+      "updatedAt": "2026-08-20T16:32:17.140Z"
+    }
+  },
+  "getAttachmentsAllResponse": {
+    "status": "success",
+    "message": "Task attachments retrieved successfully",
+    "data": [
+      {
+        "id": "d768f258-11db-49e5-99a8-e549890e5902",
+        "taskId": "8cbb2ae5-0927-4508-8485-9a2be796208e",
+        "userId": "f6999cc0-23a4-49a8-9812-9f2151c07d66",
+        "fileName": "Project Report PDF",
+        "mimeType": "application/pdf",
+        "size": 25,
+        "createdAt": "2026-08-20T16:32:17.140Z",
+        "updatedAt": "2026-08-20T16:32:17.140Z",
+        "fileUrl": "https://task-management-files.fa128a149324158cc60dccba844f289e.r2.cloudflarestorage.com/uploads/1787243536806_001skg.pdf?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Content-Sha256=UNSIGNED-PAYLOAD&X-Amz-Credential=098262ae62f89e8f1b17d3178233c876%2F20260820%2Fauto%2Fs3%2Faws4_request&X-Amz-Date=20260820T163217Z&X-Amz-Expires=3600&X-Amz-Signature=63ec23176f55fa3668f3228c4e91ac7ed1eea9033e5e5b7e87bd85c4d57d1c31&X-Amz-SignedHeaders=host&x-amz-checksum-mode=ENABLED&x-id=GetObject"
+      },
+      {
+        "id": "033fcf73-31bc-47fe-8394-4d222d127fc8",
+        "taskId": "8cbb2ae5-0927-4508-8485-9a2be796208e",
+        "userId": "f6999cc0-23a4-49a8-9812-9f2151c07d66",
+        "fileName": "Sample Screenshot PNG",
+        "mimeType": "image/png",
+        "size": 30,
+        "createdAt": "2026-08-20T16:32:16.785Z",
+        "updatedAt": "2026-08-20T16:32:16.785Z",
+        "fileUrl": "https://task-management-files.fa128a149324158cc60dccba844f289e.r2.cloudflarestorage.com/uploads/1787243536401_0weem5.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Content-Sha256=UNSIGNED-PAYLOAD&X-Amz-Credential=098262ae62f89e8f1b17d3178233c876%2F20260820%2Fauto%2Fs3%2Faws4_request&X-Amz-Date=20260820T163217Z&X-Amz-Expires=3600&X-Amz-Signature=256bdc03b8718d18e44789a9f1cd51a7981638359ec0d5eb4af135085b554ebe&X-Amz-SignedHeaders=host&x-amz-checksum-mode=ENABLED&x-id=GetObject"
+      }
+    ]
+  },
+  "getAttachmentsImageResponse": {
+    "status": "success",
+    "message": "Task attachments retrieved successfully",
+    "data": [
+      {
+        "id": "033fcf73-31bc-47fe-8394-4d222d127fc8",
+        "taskId": "8cbb2ae5-0927-4508-8485-9a2be796208e",
+        "userId": "f6999cc0-23a4-49a8-9812-9f2151c07d66",
+        "fileName": "Sample Screenshot PNG",
+        "mimeType": "image/png",
+        "size": 30,
+        "createdAt": "2026-08-20T16:32:16.785Z",
+        "updatedAt": "2026-08-20T16:32:16.785Z",
+        "fileUrl": "https://task-management-files.fa128a149324158cc60dccba844f289e.r2.cloudflarestorage.com/uploads/1787243536401_0weem5.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Content-Sha256=UNSIGNED-PAYLOAD&X-Amz-Credential=098262ae62f89e8f1b17d3178233c876%2F20260820%2Fauto%2Fs3%2Faws4_request&X-Amz-Date=20260820T163217Z&X-Amz-Expires=3600&X-Amz-Signature=256bdc03b8718d18e44789a9f1cd51a7981638359ec0d5eb4af135085b554ebe&X-Amz-SignedHeaders=host&x-amz-checksum-mode=ENABLED&x-id=GetObject"
+      }
+    ]
+  },
+  "getAttachmentsFileResponse": {
+    "status": "success",
+    "message": "Task attachments retrieved successfully",
+    "data": [
+      {
+        "id": "d768f258-11db-49e5-99a8-e549890e5902",
+        "taskId": "8cbb2ae5-0927-4508-8485-9a2be796208e",
+        "userId": "f6999cc0-23a4-49a8-9812-9f2151c07d66",
+        "fileName": "Project Report PDF",
+        "mimeType": "application/pdf",
+        "size": 25,
+        "createdAt": "2026-08-20T16:32:17.140Z",
+        "updatedAt": "2026-08-20T16:32:17.140Z",
+        "fileUrl": "https://task-management-files.fa128a149324158cc60dccba844f289e.r2.cloudflarestorage.com/uploads/1787243536806_001skg.pdf?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Content-Sha256=UNSIGNED-PAYLOAD&X-Amz-Credential=098262ae62f89e8f1b17d3178233c876%2F20260820%2Fauto%2Fs3%2Faws4_request&X-Amz-Date=20260820T163217Z&X-Amz-Expires=3600&X-Amz-Signature=63ec23176f55fa3668f3228c4e91ac7ed1eea9033e5e5b7e87bd85c4d57d1c31&X-Amz-SignedHeaders=host&x-amz-checksum-mode=ENABLED&x-id=GetObject"
+      }
+    ]
+  },
+  "getTaskDetailResponse": {
+    "status": "success",
+    "data": {
+      "taskId": "8cbb2ae5-0927-4508-8485-9a2be796208e",
+      "projectId": "5b26eaaa-d02c-4114-a60c-31b767336e43",
+      "project": {
+        "id": "5b26eaaa-d02c-4114-a60c-31b767336e43",
+        "name": "Attachment Test Project"
+      },
+      "title": "Task with Attachments",
+      "description": "",
+      "picId": null,
+      "completed": false,
+      "status": "TODO",
+      "priority": "MEDIUM",
+      "startDate": "2026-08-20T16:32:16.334Z",
+      "dueDate": null,
+      "createdAt": "2026-08-20T16:32:16.348Z",
+      "updatedAt": "2026-08-20T16:32:16.348Z",
+      "deletedAt": null,
+      "assignee": null
+    }
+  },
+  "deleteAttachmentResponse": {
+    "status": "success",
+    "message": "Task attachment deleted successfully"
+  }
+}

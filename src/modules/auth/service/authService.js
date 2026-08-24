@@ -1,4 +1,5 @@
 import bcrypt from 'bcrypt'
+import prisma from '../../../db/db.js';
 import { addRefreshToken, addUser, getUserByEmailOrUsername, getUserByEmail, getUserByUsername, getRefreshToken, updateRefreshToken } from '../repository/authRepository.js';
 import { BadRequestError, UnauthorizedError } from '../../../exceptions/errors.js';
 import { generateTokens } from '../../../jwt/jwt.js';
@@ -98,16 +99,17 @@ export const updateTokenService = async (refreshToken) => {
   // ambil user dari relation
   const user = await getUserByIdService(existingToken.userId);
 
-  // revoke old token
-  await updateRefreshToken(existingToken.id);
-
   // generate new tokens
   const { accessToken, refreshToken: newRefreshToken } =
     generateTokens(user);
 
   const newHash = hashToken(newRefreshToken);
 
-  await addRefreshToken(existingToken.userId, newHash);
+  // revoke old token and persist the new one atomically
+  await prisma.$transaction(async (tx) => {
+    await updateRefreshToken(existingToken.id, tx);
+    await addRefreshToken(existingToken.userId, newHash, tx);
+  });
 
   return {
     accessToken,
