@@ -45,7 +45,7 @@ export const checkProjectRoleForTask = (allowedRoles = [], all = false) => {
     const userId = req.user.id;
     const taskId = req.params?.taskId;
 
-    const withDeleted = (req.params?.status == "all") ? true : false || all;
+    const withDeleted = (req.params?.status == "all") ? true :  all;
 
     const task = await getTaskById(taskId, withDeleted);
     if (!task) throw new NotFoundError('Task is not found');
@@ -85,7 +85,7 @@ export const checkProjectRoleForUpdateStatusTask = (allowedRoles = [], all = fal
     const userId = req.user.id;
     const taskId = req.params?.taskId;
 
-    const withDeleted = (req.params?.status == "all") ? true : false || all;
+    const withDeleted = (req.params?.status == "all") ? true : all;
 
     const task = await getTaskById(taskId, withDeleted);
     if (!task) throw new NotFoundError('Task is not found');
@@ -107,7 +107,7 @@ export const checkProjectRoleForUpdateStatusTask = (allowedRoles = [], all = fal
     }
 
     //check if MEMBER is assignee to the task
-    if (member.role == "MEMBER" && userId != task.assignee.userId) {
+    if (member.role == "MEMBER" && userId !== task.assignee?.userId) {
       return next(new ForbiddenError('You are not authorized to perform this action'));
     }
 
@@ -134,7 +134,7 @@ export const checkTaskCommentPermission = ({
       }
 
       if (comment.taskId !== taskId) {
-        if (!task) throw new NotFoundError('Task is not found');
+        throw new NotFoundError('Task is not found');
       }
 
       const task = await getTaskById(taskId);

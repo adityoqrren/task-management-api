@@ -1,6 +1,6 @@
 // import { ta } from "zod/locales";
 // import { redis } from "../../config/redis.js";
-import { BadRequestError, NotFoundError } from "../../../exceptions/errors.js";
+import { BadRequestError, InternalServerError, NotFoundError } from "../../../exceptions/errors.js";
 import { getProjectMemberByMemberIdService, getProjectMembersService, updateProjectLastActivityService } from "../../project/service/projectService.js";
 import { makeError } from "../../../shared/utils/response.js";
 import { bulkMarkTasksCompleted, bulkSoftDeleteTasks, addTask, deleteTask, findValidTasksByIds, getAllTasks, getTaskById, softDeleteTask, editTask, softDeleteTasksByProjectId, restoreSoftDeletedTasksByProjectId, addTaskAttachment, addTaskImage, getTaskAttachmentById, getTaskImageById, getTaskAttachmentsByTaskId, deleteTaskAttachment, deleteTaskImage, getTasksByIds, getTaskStatisticsByProjectId, getUserTaskCounts } from "../repository/taskRepository.js";
@@ -502,13 +502,15 @@ export const softDeleteTaskService = async ({ taskId, assigneeUserId, projectId,
 };
 
 export const softDeleteTasksByProjectService = async (projectId) => {
-  const result = await softDeleteTasksByProjectId(projectId);
-  if (result == 0) {
-    throw BadRequestError("Failed to delete tasks of this project");
+  try {
+    const result = await softDeleteTasksByProjectId(projectId);
+    //TODO : invalidate cache related to assignee of each task
+    //TODO : invalidate project task
+    return result;
+  } catch (error) {
+    console.error(`Failed to soft delete tasks of project ${projectId}:`, error);
+    throw new InternalServerError("Failed to soft delete tasks of this project");
   }
-  //TODO : invalidate cache related to assignee of each task
-  //TODO : invalidate project task
-  return result;
 };
 
 export const restoreSoftDeletedTaskService = async (taskId) => {
@@ -576,12 +578,13 @@ export const restoreSoftDeletedTaskService = async (taskId) => {
   return updatedTask;
 };
 
-export const restoreSoftDeletedTasksByProjectIdService = async ({ userId, projectId }) => {
-  const totalTasks = restoreSoftDeletedTasksByProjectId(projectId);
-  if (totalTasks == 0) {
-    throw BadRequestError("Failed to restore tasks");
+export const restoreSoftDeletedTasksByProjectIdService = async ({ projectId }) => {
+  try {
+    return await restoreSoftDeletedTasksByProjectId(projectId);
+  } catch (error) {
+    console.error(`Failed to restore tasks of project ${projectId}:`, error);
+    throw new InternalServerError("Failed to restore tasks of this project");
   }
-  return totalTasks;
 }
 
 export const deleteTaskAttachmentService = async ({ taskId, attachmentId }) => {
