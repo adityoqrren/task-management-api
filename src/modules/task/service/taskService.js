@@ -1,9 +1,10 @@
 // import { ta } from "zod/locales";
 // import { redis } from "../../config/redis.js";
 import { BadRequestError, InternalServerError, NotFoundError } from "../../../exceptions/errors.js";
-import { getProjectMemberByMemberIdService, getProjectMembersService, updateProjectLastActivityService } from "../../project/service/projectService.js";
+import { getProjectMemberByMemberIdService, updateProjectLastActivityService } from "../../project/service/projectService.js";
 import { makeError } from "../../../shared/utils/response.js";
-import { bulkMarkTasksCompleted, bulkSoftDeleteTasks, addTask, deleteTask, findValidTasksByIds, getAllTasks, getTaskById, softDeleteTask, editTask, softDeleteTasksByProjectId, restoreSoftDeletedTasksByProjectId, addTaskAttachment, addTaskImage, getTaskAttachmentById, getTaskImageById, getTaskAttachmentsByTaskId, deleteTaskAttachment, deleteTaskImage, getTasksByIds, getTaskStatisticsByProjectId, getUserTaskCounts } from "../repository/taskRepository.js";
+import { bulkMarkTasksCompleted, bulkSoftDeleteTasks, addTask, deleteTask, findValidTasksByIds, getAllTasks, getTaskById, softDeleteTask, editTask, softDeleteTasksByProjectId, restoreSoftDeletedTasksByProjectId, addTaskAttachment, getTaskAttachmentById, getTaskAttachmentsByTaskId, getTaskAttachmentFilenamesByTaskId, deleteTaskAttachment, getTasksByIds, getTaskStatisticsByProjectId, getUserTaskCounts } from "../repository/taskRepository.js";
+import path from 'path';
 import StorageService from "../../../storage/storageService.js";
 import CacheService from "../../../cache/cacheService.js";
 import { sendEmailMessage } from "../../../queue/emailProducer.js";
@@ -12,6 +13,17 @@ import { generateEventId } from "../../../shared/utils/uuid.js";
 
 const storageService = new StorageService();
 const redisClient = new CacheService();
+
+const MAX_FILE_NAME_ATTEMPTS = 10;
+
+const generateUniqueFileName = (baseName) => {
+  const ext = path.extname(baseName);
+  const nameWithoutExt = ext ? baseName.slice(0, -ext.length) : baseName;
+  const randomId = Array.from({ length: 12 }, () =>
+    'abcdefghijklmnopqrstuvwxyz0123456789'.charAt(Math.floor(Math.random() * 36))
+  ).join('');
+  return `${nameWithoutExt} (${randomId})${ext}`;
+};
 
 export const addTaskService = async (userId, data) => {
   if (data.status) {
@@ -54,19 +66,43 @@ export const addTaskService = async (userId, data) => {
   return addedTask;
 };
 
-export const addTaskAttachmentService = async ({ taskId, userId, fileName, fileBuffer, objectKey, fileMimeType, size }) => {
+export const addTaskAttachmentService = async ({ taskId, userId, fileName, originalFileName, fileBuffer, objectKey, fileMimeType, size }) => {
   // upload to bucket
   const presignedUrlFromBucket = await storageService.writeFile(fileBuffer, objectKey, fileMimeType);
-  // add attachment info to db
-  const attachment = await addTaskAttachment({
-    taskId,
-    userId,
-    fileName,
-    bucketKey: process.env.R2_BUCKET_NAME,
-    objectKey,
-    mimeType: fileMimeType,
-    size,
-  });
+
+  // determine a unique display file name within this task, resilient to concurrent uploads
+  let attachment;
+  for (let attempt = 0; attempt < MAX_FILE_NAME_ATTEMPTS; attempt++) {
+    const existingFileNames = await getTaskAttachmentFilenamesByTaskId(taskId);
+    const displayFileName = existingFileNames.includes(fileName)
+      ? generateUniqueFileName(fileName)
+      : fileName;
+
+    try {
+      attachment = await addTaskAttachment({
+        taskId,
+        userId,
+        fileName: displayFileName,
+        originalFileName,
+        bucketKey: process.env.R2_BUCKET_NAME,
+        objectKey,
+        mimeType: fileMimeType,
+        size,
+      });
+      break;
+    } catch (error) {
+      // P2002 = unique constraint violation on [taskId, fileName] (race with a concurrent upload)
+      if (error?.code === 'P2002') {
+        continue;
+      }
+      throw error;
+    }
+  }
+
+  if (!attachment) {
+    throw new InternalServerError('Failed to generate a unique file name for the attachment');
+  }
+
   await updateProjectLastActivityService(attachment.task.projectId);
   return {
     id: attachment.id,
@@ -75,6 +111,7 @@ export const addTaskAttachmentService = async ({ taskId, userId, fileName, fileB
     projectId: attachment.task.projectId,
     taskTitle: attachment.task.title,
     fileName: attachment.fileName,
+    originalFileName: attachment.originalFileName,
     mimeType: attachment.mimeType,
     size: attachment.size,
     fileUrl: presignedUrlFromBucket,

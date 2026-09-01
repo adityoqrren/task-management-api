@@ -20,7 +20,6 @@ import {
 } from './controller/taskController.js';
 import { authenticate } from '../../shared/middlewares/authMiddlewares.js';
 // import { cacheTasks } from '../../shared/middlewares/caching.js';
-import { apiLimiter } from '../../shared/middlewares/rateLimiter.js';
 import { checkProjectRole, checkProjectRoleForTask, checkProjectRoleForUpdateStatusTask } from '../../shared/middlewares/checkProjectRole.js';
 import { validateRequest } from '../../shared/middlewares/validateRequest.js';
 import { assignTaskSchema, updateTaskSchema, updateTaskStatusSchema, updateTaskProgressSchema, postTaskSchema, postTaskImageSchema, postTaskAttachmentSchema, getTaskAttachmentsQuerySchema } from './taskValidation.js';

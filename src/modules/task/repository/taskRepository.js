@@ -173,6 +173,14 @@ export const getTasksByIds = async (taskIds, withDeleted) => await prisma.tasks.
 });
 
 
+export const getTaskAttachmentFilenamesByTaskId = async (taskId) => {
+  const rows = await prisma.taskAttachments.findMany({
+    where: { taskId },
+    select: { fileName: true },
+  });
+  return rows.map((row) => row.fileName);
+};
+
 export const getTaskAttachmentById = async (taskId, attachmentId) => {
   const where = {
     id: attachmentId,

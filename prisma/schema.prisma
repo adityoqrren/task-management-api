@@ -96,22 +96,24 @@ model Tasks {
 }
 
 model TaskAttachments {
-  id        String   @id @default(uuid())
-  taskId    String   @map("task_id")
-  userId    String   @map("user_id")
-  fileName  String   @map("file_name")
-  bucketKey String   @map("bucket_key")
-  objectKey String   @map("object_key")
-  mimeType  String   @map("mime_type")
-  size      Int
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  id               String   @id @default(uuid())
+  taskId           String   @map("task_id")
+  userId           String   @map("user_id")
+  fileName         String   @map("file_name")
+  originalFileName String   @map("original_file_name")
+  bucketKey        String   @map("bucket_key")
+  objectKey        String   @map("object_key")
+  mimeType         String   @map("mime_type")
+  size             Int
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
 
   task Tasks @relation(fields: [taskId], references: [id], onDelete: Cascade)
   user Users @relation(fields: [userId], references: [id])
 
   @@index([taskId])
   @@index([userId])
+  @@unique([taskId, fileName])
 }
 
 model TaskComments {

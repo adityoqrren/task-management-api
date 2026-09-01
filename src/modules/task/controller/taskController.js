@@ -1,6 +1,4 @@
-import { is } from 'zod/locales';
-import { makeError, successPaginationResponse, successResponse } from '../../../shared/utils/response.js';
-import { deleteTaskImage } from '../repository/taskRepository.js';
+import { successPaginationResponse, successResponse } from '../../../shared/utils/response.js';
 import {
   addTaskService,
   getTaskByIdService,
@@ -12,12 +10,8 @@ import {
   bulkMarkCompletedService,
   softDeleteTasksByProjectService,
   assignActiveTaskService,
-  addTaskAttachmentService,
-  addTaskImageService,
-  getTaskAttachmentsService,
-  deleteTaskAttachmentService,
-  deleteTaskImageService,
-  getAllTasksByUserIdService,
+  addTaskAttachmentService, getTaskAttachmentsService,
+  deleteTaskAttachmentService, getAllTasksByUserIdService,
   getUserTaskCountsService
 } from '../service/taskService.js';
 import path from 'path';
@@ -67,6 +61,7 @@ export const handlePostTaskAttachment = async (req, res, next) => {
       taskId,
       userId,
       fileName: finalFileName,
+      originalFileName: originalName,
       fileBuffer,
       objectKey,
       fileMimeType,
