@@ -1,5 +1,6 @@
+import { BadRequestError } from '../../../exceptions/errors.js';
 import { getProjectsByIdsService } from '../../project/service/projectService.js';
-import { getTaskByIdService, getTasksByIdsService } from '../../task/service/taskService.js';
+import { getTasksByIdsService } from '../../task/service/taskService.js';
 import {
   findActivityLogsByProjectId,
   findActivityLogsByTaskId,
@@ -16,11 +17,42 @@ function encodeCursor(log) {
 }
 
 function decodeCursor(cursor) {
-  return JSON.parse(
-    Buffer.from(cursor, 'base64').toString('utf8')
-  );
+  let parsed;
+  try {
+    parsed = JSON.parse(
+      Buffer.from(cursor, 'base64').toString('utf8')
+    );
+  } catch {
+    throw new BadRequestError('Invalid cursor');
+  }
+
+  const { createdAt, id } = parsed ?? {};
+
+  if (
+    typeof id !== 'string' ||
+    id.length === 0 ||
+    typeof createdAt !== 'string' ||
+    Number.isNaN(Date.parse(createdAt))
+  ) {
+    throw new BadRequestError('Invalid cursor');
+  }
+
+  return { createdAt, id };
 }
 
+function paginate(rows, limit) {
+  const hasNext = rows.length > limit;
+  const pageRows = hasNext ? rows.slice(0, limit) : rows;
+  const lastLog = hasNext ? pageRows[pageRows.length - 1] : null;
+
+  return {
+    pageRows,
+    nextCursor: lastLog ? encodeCursor(lastLog) : null,
+  };
+}
+
+const resolveTaskId = (log) =>
+  log.taskId ?? (log.entityType === 'task' ? log.entityId : null);
 
 export const getProjectActivityLogsService = async ({
   projectId,
@@ -33,18 +65,22 @@ export const getProjectActivityLogsService = async ({
     limit
   });
 
-  const hasNext = logs.length === limit && logs.length > 0;
-  const lastLog = hasNext ? logs[logs.length - 1] : null
+  const { pageRows, nextCursor } = paginate(logs, limit);
 
   return {
-    data: logs.map((log) => ({
+    data: pageRows.map((log) => ({
       id: log.id,
       type: log.type,
       message: log.message,
       createdAt: log.createdAt,
+      actorId: log.actorId,
+      actorName: log.actor?.name ?? null,
+      targetUserId: log.targetUserId,
+      targetUserName: log.targetUser?.name ?? null,
       projectId: log.projectId,
+      projectName: log.projectName,
     })),
-    nextCursor: (lastLog) ? encodeCursor(lastLog) : null,
+    nextCursor,
   };
 };
 
@@ -53,31 +89,30 @@ export const getTaskActivityLogsService = async ({
   cursor,
   limit = 20
 }) => {
-  if (cursor) {
-    console.log(`cursor : ${cursor}`);
-    console.log(`decoded cursor: ${JSON.stringify(decodeCursor(cursor))}`);
-  }
   const logs = await findActivityLogsByTaskId({
     taskId,
     cursor: cursor ? decodeCursor(cursor) : null,
     limit
   });
 
-  const hasNext = logs.length === limit && logs.length > 0;
-  const lastLog = hasNext ? logs[logs.length - 1] : null
-
-  // console.log(`cusrsor lastLog: ${lastLog.createdAt.toISOString()}`);
+  const { pageRows, nextCursor } = paginate(logs, limit);
 
   return {
-    data: logs.map((log) => ({
+    data: pageRows.map((log) => ({
       id: log.id,
       type: log.type,
       message: log.message,
       createdAt: log.createdAt,
-      taskId: log.entityId,
+      actorId: log.actorId,
+      actorName: log.actor?.name ?? null,
+      targetUserId: log.targetUserId,
+      targetUserName: log.targetUser?.name ?? null,
+      taskId: resolveTaskId(log),
+      taskTitle: log.entityTitle,
       projectId: log.projectId,
+      projectName: log.projectName,
     })),
-    nextCursor: (lastLog) ? encodeCursor(lastLog) : null,
+    nextCursor,
   };
 };
 
@@ -92,33 +127,34 @@ export const getUserActivityLogsService = async ({
     limit
   });
 
-  const hasNext = logs.length === limit && logs.length > 0;
-  const lastLog = hasNext ? logs[logs.length - 1] : null
+  const { pageRows, nextCursor } = paginate(logs, limit);
 
-  const projectIds = [...new Set(logs.map(l => l.projectId).filter(Boolean))];
-  const taskIds = [...new Set(logs.filter(l => l.entityType == 'task').map(l => l.entityId))];
+  const projectIds = [...new Set(pageRows.map(l => l.projectId).filter(Boolean))];
+  const taskIds = [...new Set(pageRows.map(resolveTaskId).filter(Boolean))];
 
   const projects = await getProjectsByIdsService({ projectIds, withDeleted: true });
 
   const tasks = await getTasksByIdsService({ taskIds, withDeleted: true });
 
+  // get only active project ids
   const projectMap = new Map(
     projects.map(p => [p.id, !p.deletedAt])
   );
 
+  // get only active task ids
   const taskMap = new Map(
     tasks.map(t => [t.id, !t.deletedAt])
   );
 
-  const formattedLogs = logs.map(log => {
+  const formattedLogs = pageRows.map(log => {
     const projectActive = log.projectId
       ? projectMap.get(log.projectId) ?? false
       : null;
 
-    const isTask = log.entityType === 'task';
+    const taskId = resolveTaskId(log);
 
-    const taskActive = isTask
-      ? taskMap.get(log.entityId) ?? false
+    const taskActive = taskId
+      ? taskMap.get(taskId) ?? false
       : null;
 
     return {
@@ -126,13 +162,19 @@ export const getUserActivityLogsService = async ({
       type: log.type,
       message: log.message,
       createdAt: log.createdAt,
+      actorId: log.actorId,
+      actorName: log.actor?.name ?? null,
+      targetUserId: log.targetUserId,
+      targetUserName: log.targetUser?.name ?? null,
       project: log.projectId && {
         id: log.projectId,
+        name: log.projectName,
         isActive: projectActive
       },
-      ...(isTask && {
+      ...(taskId && {
         task: {
-          id: log.entityId,
+          id: taskId,
+          title: log.entityTitle,
           isActive: taskActive
         }
       }),
@@ -142,21 +184,6 @@ export const getUserActivityLogsService = async ({
 
   return {
     data: formattedLogs,
-    nextCursor: (lastLog) ? encodeCursor(lastLog) : null,
+    nextCursor,
   };
-
-  // return {
-  //   data: logs.map((log) => ({
-  //     id: log.id,
-  //     action: log.action,
-  //     message: log.message,
-  //     createdAt: log.createdAt,
-  //     projectId: log.projectId,
-  //     taskId: log.taskId
-  //   })),
-  //   pageInfo: {
-  //     hasNextPage: logs.length === limit,
-  //     nextCursor: lastLog ? lastLog.createdAt : null
-  //   }
-  // };
 };

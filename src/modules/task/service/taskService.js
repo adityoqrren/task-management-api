@@ -1,19 +1,47 @@
 // import { ta } from "zod/locales";
 // import { redis } from "../../config/redis.js";
-import { BadRequestError, NotFoundError } from "../../../exceptions/errors.js";
-import { getProjectMemberByMemberIdService, getProjectMembersService } from "../../project/service/projectService.js";
+import { BadRequestError, InternalServerError, NotFoundError } from "../../../exceptions/errors.js";
+import { getProjectMemberByMemberIdService, updateProjectLastActivityService } from "../../project/service/projectService.js";
 import { makeError } from "../../../shared/utils/response.js";
-import { bulkMarkTasksCompleted, bulkSoftDeleteTasks, addTask, deleteTask, findValidTasksByIds, getAllTasks, getTaskById, softDeleteTask, editTask, softDeleteTasksByProjectId, restoreSoftDeletedTasksByProjectId, addTaskImage, getTaskImageById, deleteTaskImage, getTasksByIds } from "../repository/taskRepository.js";
+import { bulkMarkTasksCompleted, bulkSoftDeleteTasks, addTask, deleteTask, findValidTasksByIds, getAllTasks, getTaskById, softDeleteTask, editTask, softDeleteTasksByProjectId, restoreSoftDeletedTasksByProjectId, addTaskAttachment, getTaskAttachmentById, getTaskAttachmentsByTaskId, getTaskAttachmentFilenamesByTaskId, deleteTaskAttachment, getTasksByIds, getTaskStatisticsByProjectId, getUserTaskCounts } from "../repository/taskRepository.js";
+import path from 'path';
 import StorageService from "../../../storage/storageService.js";
 import CacheService from "../../../cache/cacheService.js";
 import { sendEmailMessage } from "../../../queue/emailProducer.js";
 import publishEvent from "../../../queue/event/eventPublisher.js";
 import { generateEventId } from "../../../shared/utils/uuid.js";
+import { sanitizeDescription } from "../../../shared/utils/sanitizeHtml.js";
 
 const storageService = new StorageService();
 const redisClient = new CacheService();
 
+const MAX_FILE_NAME_ATTEMPTS = 10;
+
+const generateUniqueFileName = (baseName) => {
+  const ext = path.extname(baseName);
+  const nameWithoutExt = ext ? baseName.slice(0, -ext.length) : baseName;
+  const randomId = Array.from({ length: 12 }, () =>
+    'abcdefghijklmnopqrstuvwxyz0123456789'.charAt(Math.floor(Math.random() * 36))
+  ).join('');
+  return `${nameWithoutExt} (${randomId})${ext}`;
+};
+
 export const addTaskService = async (userId, data) => {
+  if (data.description !== undefined) {
+    data.description = sanitizeDescription(data.description);
+  }
+  if (data.status) {
+    if (data.status === 'DONE') {
+      data.completed = true;
+    } else {
+      data.completed = false;
+    }
+  }
+  if (data.priority) {
+    data.priority = data.priority.toUpperCase();
+  } else {
+    data.priority = 'MEDIUM';
+  }
   const addedTask = await addTask(data);
 
   //TODO: invalidate project task
@@ -32,30 +60,14 @@ export const addTaskService = async (userId, data) => {
     occurredAt: new Date().toISOString(),
     payload: {
       taskId: addedTask.id,
+      taskTitle: addedTask.title,
       projectId: addedTask.projectId,
+      projectName: addedTask.project?.name ?? null,
     },
   });
 
+  await updateProjectLastActivityService(addedTask.projectId);
   return addedTask;
-};
-
-export const addTaskImageService = async ({ taskId, imageTitle, fileBuffer, objectKey, fileMimeType }) => {
-  // upload to bucket
-  const presignedUrlFromBucket = await storageService.writeFile(fileBuffer, objectKey, fileMimeType);
-  // add image info to db
-  const addImageToDb = await addTaskImage({
-    taskId,
-    imageTitle,
-    objectKey,
-    bucketKey: process.env.R2_BUCKET_NAME,
-  });
-  return {
-    taskId,
-    projectId: addImageToDb.task.projectId,
-    taskTitle: addImageToDb.task.title,
-    imageTitle,
-    imageUrl: presignedUrlFromBucket,
-  }
 };
 
 //TODO: if getAllTasksByProjectIdService and getAllTasksByUserIdService have many similar code, refactor it
@@ -123,32 +135,36 @@ export const getAllTasksByUserIdService = async ({ isSimpleQuery, status, queryP
 
 }
 
-export const getTaskByIdService = async ({ taskId, withDeleted }) => {
-  const task = await getTaskById(taskId, withDeleted);
+export const getTaskByIdService = async ({ taskId, withDeleted, includeAttachments = false }) => {
+  const task = await getTaskById(taskId, withDeleted, includeAttachments);
   if (!task) throw new NotFoundError('Task not found');
-  const { id, assigneeId: picId, taskImages, ...rest } = task;
-  const storageService = new StorageService();
 
-  const taskImagesWithUrl = await Promise.all(taskImages.map(async (taskImage) => {
-    const imageUrl = await storageService.createPreSignedUrl({
-      bucket: taskImage.bucketKey,
-      key: taskImage.objectKey,
-    });
+  if (includeAttachments && task.taskAttachments) {
+    const storageService = new StorageService();
+    const taskAttachmentsWithUrl = await Promise.all(task.taskAttachments.map(async (attachment) => {
+      const { bucketKey, objectKey, ...attachmentDetail } = attachment;
+      const fileUrl = await storageService.createPreSignedUrl({
+        bucket: bucketKey,
+        key: objectKey,
+      });
+      return {
+        ...attachmentDetail,
+        fileUrl,
+      };
+    }));
+
+    const { taskAttachments, ...taskDetail } = task;
     return {
-      ...taskImage,
-      imageUrl
+      ...taskDetail,
+      taskAttachments: taskAttachmentsWithUrl,
     };
-  }));
+  }
 
-  return {
-    taskId: id,
-    picId,
-    ...rest,
-    taskImages: taskImagesWithUrl
-  };
+  const { taskAttachments, ...taskDetail } = task;
+  return taskDetail;
 };
 
-export const getTasksByIdsService = async ({taskIds, withDeleted}) => {
+export const getTasksByIdsService = async ({ taskIds, withDeleted }) => {
   return await getTasksByIds(taskIds, withDeleted);
 }
 
@@ -283,6 +299,7 @@ export const assignActiveTaskService = async ({ taskId, projectId, ownerEmail, a
     await redisClient.delete(cacheGroupKey); // bersihkan set-nya juga
   }
 
+  await updateProjectLastActivityService(projectId);
   return editedTask;
 
 }
@@ -292,6 +309,28 @@ export const editTaskService = async ({ userId, taskId, ownerEmail, assigneeUser
   // console.log(`ini params id : ${id}`)
   // const taskExisting = await getTaskById(taskId, false)
   // const existingUserId = taskExisting.assignee?.userId ?? null;
+
+  if (data.description !== undefined) {
+    data.description = sanitizeDescription(data.description);
+  }
+
+  if (data.priority) {
+    data.priority = data.priority.toUpperCase();
+  }
+
+  if (data.status) {
+    if (data.status === 'DONE') {
+      data.completed = true;
+    } else {
+      data.completed = false;
+    }
+  } else if (data.completed !== undefined) {
+    if (data.completed) {
+      data.status = 'DONE';
+    } else {
+      data.status = 'TODO';
+    }
+  }
 
   const editedTask = await editTask(taskId, data);
 
@@ -307,7 +346,7 @@ export const editTaskService = async ({ userId, taskId, ownerEmail, assigneeUser
     }
   }
 
-  const { projectId, title, description, assigneeId: picId, completed } = editedTask;
+  const { projectId, title, description, assigneeId: picId, completed, status, priority, startDate, dueDate } = editedTask;
   const assigneeEmail = editedTask.assignee?.user?.email ?? null;
 
   // send email to assignee (if has been assigned)
@@ -321,51 +360,52 @@ export const editTaskService = async ({ userId, taskId, ownerEmail, assigneeUser
         description : ${description}
       `
     });
+  }
 
-    if (statusUpdate && editedTask.completed) {
-      //publish task.completed event to queue
-      await publishEvent({
-        id: 'event-' + generateEventId(),
-        type: 'task.completed',
-        actorId: userId,
-        occurredAt: new Date().toISOString(),
-        payload: {
-          taskId: editedTask.id,
-          taskTitle: editedTask.title,
-          projectId: editedTask.projectId,
-          projectName: editedTask.project.name,
-          assignedUserId: editedTask.assignee.userId,
-          ownerId: editedTask.project.owner,
-        },
-      });
-    } else {
-      //publish task.updated event to queue
-      await publishEvent({
-        id: 'event-' + generateEventId(),
-        type: 'task.updated',
-        actorId: editedTask.project.owner,
-        occurredAt: new Date().toISOString(),
-        payload: {
-          taskId: editedTask.id,
-          taskTitle: editedTask.title,
-          projectId: editedTask.projectId,
-          projectName: editedTask.project.name,
-          assignedUserId: editedTask.assignee.userId,
-          ownerId: editedTask.project.owner,
-        },
-      });
+  const isNewlyCompleted = (statusUpdate && editedTask.completed) || (data.status === 'DONE' && editedTask.completed);
+  if (isNewlyCompleted) {
+    //publish task.completed event to queue
+    await publishEvent({
+      id: 'event-' + generateEventId(),
+      type: 'task.completed',
+      actorId: userId,
+      occurredAt: new Date().toISOString(),
+      payload: {
+        taskId: editedTask.id,
+        taskTitle: editedTask.title,
+        projectId: editedTask.projectId,
+        projectName: editedTask.project.name,
+        assignedUserId: editedTask.assignee?.userId ?? null,
+        ownerId: editedTask.project.owner,
+      },
+    });
+  } else {
+    //publish task.updated event to queue
+    await publishEvent({
+      id: 'event-' + generateEventId(),
+      type: 'task.updated',
+      actorId: userId, // owner or assignee can update
+      occurredAt: new Date().toISOString(),
+      payload: {
+        taskId: editedTask.id,
+        taskTitle: editedTask.title,
+        projectId: editedTask.projectId,
+        projectName: editedTask.project.name,
+        assignedUserId: editedTask.assignee?.userId ?? null,
+        ownerId: editedTask.project.owner,
+      },
+    });
 
-      // send email to owner
-      await sendEmailMessage({
-        to: ownerEmail,
-        subject: "Task Updated",
-        text: `
+    // send email to owner
+    await sendEmailMessage({
+      to: ownerEmail,
+      subject: "Task Updated",
+      text: `
         Task owned by you (id : ${taskId}) has been updated.
         title : ${title}
         description : ${description}
       `
-      });
-    }
+    });
   }
 
   //TODO: invalidate project task
@@ -376,6 +416,7 @@ export const editTaskService = async ({ userId, taskId, ownerEmail, assigneeUser
     await redisClient.delete(cacheGroupKey); // bersihkan set-nya juga
   }
 
+  await updateProjectLastActivityService(projectId);
   return {
     taskId,
     projectId,
@@ -383,6 +424,10 @@ export const editTaskService = async ({ userId, taskId, ownerEmail, assigneeUser
     description,
     picId,
     completed,
+    status,
+    priority,
+    startDate,
+    dueDate,
   };
 };
 
@@ -415,44 +460,73 @@ export const softDeleteTaskService = async ({ taskId, assigneeUserId, projectId,
     occurredAt: new Date().toISOString(),
     payload: {
       taskId: softDeletedTask.id,
+      taskTitle: softDeletedTask.title,
       projectId: softDeletedTask.projectId,
+      projectName: softDeletedTask.project?.name ?? null,
     },
   });
 
+  await updateProjectLastActivityService(projectId);
   return softDeletedTask;
 };
 
 export const softDeleteTasksByProjectService = async (projectId) => {
-  const result = await softDeleteTasksByProjectId(projectId);
-  if (result == 0) {
-    throw BadRequestError("Failed to delete tasks of this project");
+  try {
+    const result = await softDeleteTasksByProjectId(projectId);
+    //TODO : invalidate cache related to assignee of each task
+    //TODO : invalidate project task
+    return result;
+  } catch (error) {
+    console.error(`Failed to soft delete tasks of project ${projectId}:`, error);
+    throw new InternalServerError("Failed to soft delete tasks of this project");
   }
-  //TODO : invalidate cache related to assignee of each task
-  //TODO : invalidate project task
-  return result;
 };
 
 export const restoreSoftDeletedTaskService = async (taskId) => {
   // console.log(`ini user id : ${userId}`)
   // console.log(`ini params id : ${id}`)
+  // console.log(`here in restoreSoftDeletedTaskService ${taskId}`);
   const existing = await getTaskById(taskId, true)
   if (!existing) throw new NotFoundError('Task not found');
   if (existing.deletedAt == null) throw new BadRequestError('Task not yet deleted');
   //console.log(`assignee id : ${existing.assigneeId}`);
-  const projectMember = await getProjectMemberByMemberIdService({ projectId: existing.projectId, memberId: existing.assigneeId });
+
+  let projectMember = null;
   const data = {
     deletedAt: null,
   }
-  // if projectMember is not active and task has not been done yet
-  //console.log(`isActive : ${projectMember.isActive} | completed : ${existing.completed}`);
-  if (!projectMember.isActive && !existing.completed) {
-    data.assigneeId = null;
+
+  //if task has been assigned
+  if (existing.assigneeId) {
+    projectMember = await getProjectMemberByMemberIdService({ projectId: existing.projectId, memberId: existing.assigneeId });
+    // if projectMember is null (member has exited) or member not active and task has not been done yet
+    //console.log(`isActive : ${projectMember.isActive} | completed : ${existing.completed}`);
+    if (!projectMember || (!projectMember.isActive && !existing.completed)) {
+      data.assigneeId = null;
+    }
   }
+
   //console.log(`data: ${data.assigneeId}`);
   const updatedTask = await editTask(taskId, data);
 
+  //publish event task.restored
+  await publishEvent({
+    id: 'event-' + generateEventId(),
+    type: 'task.restored',
+    actorId: updatedTask.project.owner,
+    occurredAt: new Date().toISOString(),
+    payload: {
+      taskId: updatedTask.id,
+      taskTitle: updatedTask.title,
+      projectId: updatedTask.projectId,
+      projectName: updatedTask.project.name,
+      assignedUserId: updatedTask.assignee?.userId ?? null,
+      ownerId: updatedTask.project.owner,
+    },
+  });
+
   //invalidate user cache
-  if (projectMember.isActive) {
+  if (projectMember) {
     const cacheGroupKey = `tasks_cache_group:user:${projectMember.userId}`;
     const keys = await redisClient.getCacheGroup(cacheGroupKey);
     if (keys.length) {
@@ -469,26 +543,17 @@ export const restoreSoftDeletedTaskService = async (taskId) => {
     await redisClient.delete(cacheGroupKey); // bersihkan set-nya juga
   }
 
+  await updateProjectLastActivityService(updatedTask.projectId);
   return updatedTask;
 };
 
-export const restoreSoftDeletedTasksByProjectIdService = async ({ userId, projectId }) => {
-  const totalTasks = restoreSoftDeletedTasksByProjectId(projectId);
-  if (totalTasks == 0) {
-    throw BadRequestError("Failed to restore tasks");
+export const restoreSoftDeletedTasksByProjectIdService = async ({ projectId }) => {
+  try {
+    return await restoreSoftDeletedTasksByProjectId(projectId);
+  } catch (error) {
+    console.error(`Failed to restore tasks of project ${projectId}:`, error);
+    throw new InternalServerError("Failed to restore tasks of this project");
   }
-  return totalTasks;
-}
-
-export const deleteTaskImageService = async (imageId) => {
-  const existing = await getTaskImageById(imageId);
-  if (!existing) throw new NotFoundError('Image not found');
-  const deleteFromBucket = await storageService.deleteFile(existing.objectKey);
-  if (!deleteFromBucket.success) {
-    throw new BadRequestError('Failed to delete image from storage');
-  }
-  const deletedImage = await deleteTaskImage(imageId);
-  return deletedImage;
 }
 
 export const deleteTaskService = async ({ userId, taskId }) => {
@@ -502,7 +567,167 @@ export const deleteTaskService = async ({ userId, taskId }) => {
   // );
   // const deleteOnRedis2 = await redis.del(`tasks:${deletedTask.userId}:${deletedTask.projectId}`);
   // console.log(`deleted data on redis : ${deleteOnRedis} - ${deleteOnRedis2}`);
+  //publish task.permanent.deleted event to queue
+  await publishEvent({
+    id: 'event-' + generateEventId(),
+    type: 'task.permanent.deleted',
+    actorId: userId,
+    occurredAt: new Date().toISOString(),
+    payload: {
+      taskId: deletedTask.id,
+      taskTitle: deletedTask.title,
+      projectId: deletedTask.projectId,
+      projectName: existing.project.name,
+    },
+  });
+  await updateProjectLastActivityService(deletedTask.projectId);
   return deletedTask;
+};
+
+// Task Attachment
+export const addTaskAttachmentService = async ({ taskId, userId, fileName, originalFileName, fileBuffer, objectKey, fileMimeType, size }) => {
+  // upload to bucket
+  const presignedUrlFromBucket = await storageService.writeFile(fileBuffer, objectKey, fileMimeType);
+
+  // determine a unique display file name within this task, resilient to concurrent uploads
+  let attachment;
+  for (let attempt = 0; attempt < MAX_FILE_NAME_ATTEMPTS; attempt++) {
+    const existingFileNames = await getTaskAttachmentFilenamesByTaskId(taskId);
+    const displayFileName = existingFileNames.includes(fileName)
+      ? generateUniqueFileName(fileName)
+      : fileName;
+
+    try {
+      attachment = await addTaskAttachment({
+        taskId,
+        userId,
+        fileName: displayFileName,
+        originalFileName,
+        bucketKey: process.env.R2_BUCKET_NAME,
+        objectKey,
+        mimeType: fileMimeType,
+        size,
+      });
+      break;
+    } catch (error) {
+      // P2002 = unique constraint violation on [taskId, fileName] (race with a concurrent upload)
+      if (error?.code === 'P2002') {
+        continue;
+      }
+      throw error;
+    }
+  }
+
+  if (!attachment) {
+    throw new InternalServerError('Failed to generate a unique file name for the attachment');
+  }
+
+  await publishEvent({
+    id: `event-${generateEventId()}`,
+    type: "task.attachment.added",
+    actorId: userId,
+    occurredAt: new Date().toISOString(),
+    payload: {
+      attachmentId: attachment.id,
+      taskId: attachment.task.id,
+      taskTitle: attachment.task.title,
+      projectId: attachment.task.projectId,
+      projectName: attachment.task.project.name,
+      fileName: attachment.fileName,
+      originalFileName: attachment.originalFileName,
+      attachmentOwnerId: attachment.userId,
+      assignedUserId: attachment.task.assigneeId ?? null,
+      ownerId: attachment.task.project.owner,
+    },
+  });
+
+  await updateProjectLastActivityService(attachment.task.projectId);
+  return {
+    id: attachment.id,
+    taskId,
+    userId,
+    projectId: attachment.task.projectId,
+    taskTitle: attachment.task.title,
+    fileName: attachment.fileName,
+    originalFileName: attachment.originalFileName,
+    mimeType: attachment.mimeType,
+    size: attachment.size,
+    fileUrl: presignedUrlFromBucket,
+    createdAt: attachment.createdAt,
+    updatedAt: attachment.updatedAt,
+  };
+};
+
+export const addTaskImageService = addTaskAttachmentService;
+
+export const getTaskAttachmentsService = async ({ taskId, type = 'all' }) => {
+  const task = await getTaskById(taskId, false);
+  if (!task) throw new NotFoundError('Task not found');
+
+  const attachments = await getTaskAttachmentsByTaskId(taskId, type);
+  const attachmentsWithUrl = await Promise.all(attachments.map(async (attachment) => {
+    const { bucketKey, objectKey, ...detail } = attachment;
+    const fileUrl = await storageService.createPreSignedUrl({
+      bucket: bucketKey,
+      key: objectKey,
+    });
+    return {
+      ...detail,
+      fileUrl,
+    };
+  }));
+
+  return attachmentsWithUrl;
+};
+
+export const deleteTaskAttachmentService = async ({ userId, taskId, attachmentId }) => {
+  const existing = await getTaskAttachmentById(taskId, attachmentId);
+  if (!existing) throw new NotFoundError('Attachment not found');
+  const deletedAttachment = await deleteTaskAttachment(attachmentId);
+
+  // deleting from bucket
+  // TODO: in the next step after outbox pattern implemented, we must use transaction for this stuff too
+  try {
+    const deleteFromBucket = await storageService.deleteFile(
+      existing.objectKey
+    );
+
+    if (!deleteFromBucket.success) {
+      console.error(
+        `Failed to delete attachment object from storage: ${existing.objectKey}`
+      );
+    }
+  } catch (error) {
+    console.error(
+      `Failed to delete attachment object from storage: ${error.message}`
+    );
+  }
+
+  //TODO: implement Outbox Pattern soon. publishing event no need in this function after that.
+  await publishEvent({
+    id: `event-${generateEventId()}`,
+    type: "task.attachment.deleted",
+    actorId: userId,
+    occurredAt: new Date().toISOString(),
+    payload: {
+      attachmentId: deletedAttachment.id,
+      taskId: deletedAttachment.task.id,
+      taskTitle: deletedAttachment.task.title,
+      projectId: deletedAttachment.task.projectId,
+      projectName: deletedAttachment.task.project.name,
+      fileName: deletedAttachment.fileName,
+      originalFileName: deletedAttachment.originalFileName,
+      attachmentOwnerId: deletedAttachment.userId,
+      assignedUserId: deletedAttachment.task.assigneeId ?? null,
+      ownerId: deletedAttachment.task.project.owner,
+    },
+  });
+  await updateProjectLastActivityService(existing.task.projectId);
+  return deletedAttachment;
+};
+
+export const deleteTaskImageService = async ({ taskId, imageId }) => {
+  return await deleteTaskAttachmentService({ taskId, attachmentId: imageId });
 };
 
 
@@ -542,6 +767,11 @@ export const bulkMarkCompletedService = async (taskIds, userId) => {
   // Step 2: Perform bulk update
   await bulkMarkTasksCompleted(userId, validIds);
 
+  const projectIds = [...new Set(validTasks.map(t => t.projectId))];
+  for (const pId of projectIds) {
+    await updateProjectLastActivityService(pId);
+  }
+
   // Step 3: Identify failed task IDs (not found or invalid)
   const failedIds = taskIds.filter(id => !validIds.includes(id));
 
@@ -550,6 +780,15 @@ export const bulkMarkCompletedService = async (taskIds, userId) => {
     failedIds,
   };
 };
+
+export const getTaskStatisticsByProjectIdService = async (projectId) => {
+  return await getTaskStatisticsByProjectId(projectId);
+};
+
+export const getUserTaskCountsService = async (userId) => {
+  return await getUserTaskCounts(userId);
+};
+
 
 
 

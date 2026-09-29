@@ -1,6 +1,6 @@
 import express from 'express';
 import { authenticate } from '../../shared/middlewares/authMiddlewares.js';
-import { handleAddProjectMember, handlePostProject, handleDeleteProject, handleGetProjectById, handleGetProjectMembers, handleGetProjects, handleUpdateProject, handleUpdateActiveProjectMember, handleSoftDeleteProject, handleGetProjectByIdFromAll, handleGetProjectTasks, handleRestoreSoftDeletedProject } from './controller/projectController.js';
+import { handleAddProjectMember, handlePostProject, handleDeleteProject, handleGetProjectById, handleGetProjectMembers, handleGetProjects, handleUpdateProject, handleUpdateActiveProjectMember, handleSoftDeleteProject, handleGetProjectByIdFromAll, handleGetProjectTasks, handleRestoreSoftDeletedProject, handleGetProjectStatistics, handleGetRecentProjectTasks } from './controller/projectController.js';
 import { checkProjectRole } from '../../shared/middlewares/checkProjectRole.js';
 import { validateRequest } from '../../shared/middlewares/validateRequest.js';
 import { postMemberSchema, postProjectSchema, updateMemberActiveStatusSchema } from './projectValidation.js';;
@@ -106,6 +106,7 @@ router.get('/all/:id', handleGetProjectByIdFromAll);
  *                 name: "My Project"
  *                 members: []
  */
+router.get('/:id/statistics', checkProjectRole(['LEADER', 'MEMBER']), handleGetProjectStatistics);
 router.get('/:id', handleGetProjectById);
 
 /**
@@ -204,6 +205,7 @@ router.delete('/:id', checkProjectRole(['LEADER'], true), handleDeleteProject);
  *                 hasPrev: false
  *                 hasNext: false
  */
+router.get('/:id/tasks/recent', checkProjectRole(['LEADER', 'MEMBER']), handleGetRecentProjectTasks);
 router.get('/:id/tasks/', checkProjectRole(['LEADER', 'MEMBER']), handleGetProjectTasks);
 
 /**

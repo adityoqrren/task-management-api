@@ -5,7 +5,7 @@ async function publishEvent(event) {
     throw new Error('Invalid event format')
   }
 
-  console.log(`event id : ${event.id}`);
+  console.log(`event type: ${event.type} || event id : ${event.id}`);
 
   const channel = await getChannel()
   const routingKey = event.type

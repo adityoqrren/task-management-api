@@ -6,6 +6,7 @@ export const addProject = async (projectData) => {
         data: {
             name: projectData.name,
             owner: projectData.userId,
+            description: projectData.description
         }
     });
 };
@@ -13,10 +14,14 @@ export const addProject = async (projectData) => {
 export const getProjectsByUserId = async (status, { userId, page, limit, filter = {}, sortBy, order }) => {
     const skip = (page - 1) * limit;
 
+    const { search, ...restFilter } = filter;
+
     const where = {
-        ...filter,
-        userId, project: {
-            ...(status == "all" ? {} : (status == "deleted") ? { NOT: { deletedAt: null } } : { deletedAt: null })
+        ...restFilter,
+        userId,
+        project: {
+            ...(status == "all" ? {} : (status == "deleted") ? { NOT: { deletedAt: null } } : { deletedAt: null }),
+            ...(search ? { name: { contains: search, mode: 'insensitive' } } : {})
         }
     };
 
@@ -31,8 +36,10 @@ export const getProjectsByUserId = async (status, { userId, page, limit, filter 
                 select: {
                     id: true,
                     name: true,
+                    description: true,
                     createdAt: true,
                     updatedAt: true,
+                    lastActivityAt: true,
                 }
             }
         },
@@ -48,9 +55,11 @@ export const getProjectsByUserId = async (status, { userId, page, limit, filter 
     const projects = result.map(res => ({
         projectId: res.project.id,
         name: res.project.name,
+        description: res.project.description,
         role: res.role,
         createdAt: res.project.createdAt,
-        updatedAt: res.project.updatedAt
+        updatedAt: res.project.updatedAt,
+        lastActivityAt: res.project.lastActivityAt
     }));
 
     const totalProjects = await prisma.projectMembers.count({ where });
@@ -68,8 +77,10 @@ export const getProjectById = async (id) => {
         owner: result.owner,
         projectId: result.id,
         name: result.name,
+        description: result.description,
         createdAt: result.createdAt,
-        updatedAt: result.updatedAt
+        updatedAt: result.updatedAt,
+        lastActivityAt: result.lastActivityAt
     })
 };
 
@@ -83,6 +94,7 @@ export const getProjectByIdfromAll = async (id) => {
         owner: result.owner,
         projectId: result.id,
         name: result.name,
+        description: result.description,
     })
 };
 
@@ -93,14 +105,21 @@ export const getProjectsByIds = async (projectIds, withDeleted) => await prisma.
 });
 
 export const editProject = async (id, data) => {
-    return await prisma.projects.update({ where: { id }, data })
+    return await prisma.projects.update({ where: { id }, data: { ...data, lastActivityAt: new Date() } })
 };
 
 //soft delete project
 export const softDeleteProject = async (id) => {
     return await prisma.projects.update({
         where: { id, deletedAt: null },
-        data: { deletedAt: new Date() },
+        data: { deletedAt: new Date(), lastActivityAt: new Date() },
+    });
+};
+
+export const updateProjectLastActivity = async (projectId) => {
+    return await prisma.projects.update({
+        where: { id: projectId },
+        data: { lastActivityAt: new Date() }
     });
 };
 

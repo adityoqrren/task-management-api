@@ -1,87 +1,80 @@
-import { is } from 'zod/locales';
-import { makeError, successPaginationResponse, successResponse } from '../../../shared/utils/response.js';
-import { deleteTaskImage } from '../repository/taskRepository.js';
+import { successPaginationResponse, successResponse } from '../../../shared/utils/response.js';
 import {
   addTaskService,
-  getAllTasksService,
   getTaskByIdService,
   editTaskService,
   deleteTaskService,
   softDeleteTaskService,
-  getTaskByIdWithDeletedDataService,
   restoreSoftDeletedTaskService,
   bulkSoftDeleteTasksService,
   bulkMarkCompletedService,
   softDeleteTasksByProjectService,
   assignActiveTaskService,
-  addTaskImageService,
-  deleteTaskImageService,
-  getAllTasksByUserIdService
+  addTaskAttachmentService, getTaskAttachmentsService,
+  deleteTaskAttachmentService, getAllTasksByUserIdService,
+  getUserTaskCountsService
 } from '../service/taskService.js';
 import path from 'path';
 import { BadRequestError } from '../../../exceptions/errors.js';
 
 export const handlePostTask = async (req, res, next) => {
   try {
-    const { title, description = "", projectId } = req.body;
+    const { title, description = "", projectId, status, priority, startDate, dueDate } = req.body;
     const userId = req.user.id;
 
-    const task = await addTaskService(userId, { title, description, projectId });
+    const task = await addTaskService(userId, { title, description, projectId, status, priority, startDate, dueDate });
 
     return successResponse(res, "task created", {
       taskId: task.id,
-      projectId
+      projectId,
+      status: task.status,
+      priority: task.priority,
+      startDate: task.startDate,
+      dueDate: task.dueDate
     }, 201);
   } catch (error) {
     next(error);
   }
 };
 
-export const handlePostImageTask = async (req, res, next) => {
+// task attachment handling (post)
+export const handlePostTaskAttachment = async (req, res, next) => {
   try {
     const taskId = req.params.taskId;
-    const { imageTitle } = req.body;
-
-    // console.log(`taskId : ${taskId} | imageTitle : ${imageTitle}`);
+    const userId = req.user.id;
+    const { fileName, imageTitle } = req.body;
 
     const file = req.file;
     if (!file) {
-      return new BadRequestError("Image file is required");
+      throw new BadRequestError("File is required");
     }
 
-    // Cek MIME type
-    const allowedMime = ["image/jpeg", "image/png", "image/webp"];
     const fileMimeType = file.mimetype;
-
-    if (!allowedMime.includes(fileMimeType)) {
-      throw new BadRequestError("Invalid file type");
-    }
-
-    // Cek ukuran file
-    const maxSize = 2 * 1024 * 1024; // 2MB
-    if (file.size > maxSize) {
-      throw new BadRequestError("File too large (max 2MB)");
-    }
-
+    const size = file.size;
     const originalName = file.originalname;
+    const finalFileName = fileName || imageTitle || originalName;
     const fileBuffer = file.buffer;
     const ext = path.extname(originalName);
-    // buat key / nama objek di bucket
     const objectKey = `uploads/${Date.now()}_${Math.random().toString(36).substr(2, 6)}${ext}`;
 
-    const taskImage = await addTaskImageService({
+    const attachment = await addTaskAttachmentService({
       taskId,
-      imageTitle,
+      userId,
+      fileName: finalFileName,
+      originalFileName: originalName,
       fileBuffer,
       objectKey,
-      fileMimeType
+      fileMimeType,
+      size,
     });
 
-    return successResponse(res, "task created", taskImage, 201);
+    return successResponse(res, "Task attachment uploaded successfully", attachment, 201);
   } catch (error) {
     next(error);
   }
 };
+
+export const handlePostImageTask = handlePostTaskAttachment;
 
 export const handleAssignActiveTask = async (req, res, next) => {
   const ownerEmail = req.user.email;
@@ -128,8 +121,12 @@ export const handleGetAllUserTasks = async (req, res, next) => {
     /**
      * completed : is task completed. viewed by completed variable.
      * status : active | all | deleted. viewed by deleted_at. deleted_at = null means active. deleted_at != null means inactive.
+     * taskStatus : TODO | IN_PROGRESS | DONE | CANCELLED. The lifecycle state of the task.
+     * 
+     * Note: 'status' query param is used for the soft deletion state, 
+     * while 'taskStatus' query param is used to filter by the task's progress state.
      */
-    const { status = 'active', projectId, completed, search, sortBy, order } = req.query;
+    const { status = 'active', projectId, completed, search, sortBy, order, include, taskStatus, priority, dueFilter } = req.query;
     const userId = req.user.id;
 
     const limit = parseInt(req.query.limit, 10) || 0;
@@ -138,7 +135,7 @@ export const handleGetAllUserTasks = async (req, res, next) => {
     const filter = {};
 
     // Validasi sorting
-    const validSortFields = ['createdAt', 'title', 'priority', 'completed'];
+    const validSortFields = ['createdAt', 'title', 'status', 'project_name', 'priority', 'startDate', 'dueDate'];
     const validOrders = ['asc', 'desc'];
 
     const sortField = validSortFields.includes(sortBy) ? sortBy : 'createdAt';
@@ -150,6 +147,27 @@ export const handleGetAllUserTasks = async (req, res, next) => {
 
     if (completed !== undefined) {
       filter.completed = completed === 'true';
+    }
+
+    if (taskStatus) {
+      filter.status = taskStatus.toUpperCase();
+    }
+
+    if (priority) {
+      filter.priority = priority.toUpperCase();
+    }
+
+    if (dueFilter === 'dueSoon') {
+      const now = new Date();
+      const threeDaysFromNow = new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000);
+      filter.dueDate = {
+        gte: now,
+        lte: threeDaysFromNow,
+      };
+    } else if (dueFilter === 'overdue') {
+      filter.dueDate = {
+        lt: new Date(),
+      };
     }
 
     if (search) {
@@ -164,11 +182,15 @@ export const handleGetAllUserTasks = async (req, res, next) => {
       status === 'active' &&
       !projectId &&
       completed === undefined &&
+      !taskStatus &&
+      !priority &&
       !search &&
+      !dueFilter &&
       (!sortBy || sortBy === 'createdAt') &&
       (!order || order === 'desc');
+    //  && !include;
 
-    const queryParams = { userId, page, limit, filter, sortBy: sortField, order: sortOrder };
+    const queryParams = { userId, page, limit, filter, sortBy: sortField, order: sortOrder, include };
     const { isFromCache, tasks, totalTasks } = await getAllTasksByUserIdService({ isSimpleQuery, status, queryParams });
     const totalPages = (limit) ? Math.ceil(totalTasks / limit) : (totalTasks > 0) ? 1 : 0;
     if (totalPages > 0 && page > totalPages) throw new BadRequestError("Page is over from limit");
@@ -188,15 +210,67 @@ export const handleGetAllUserTasks = async (req, res, next) => {
   }
 };
 
+const mapTaskDetail = (task) => {
+  const mapped = {
+    taskId: task.id,
+    projectId: task.projectId,
+    project: task.project,
+    title: task.title,
+    description: task.description,
+    picId: task.assigneeId,
+    completed: task.completed,
+    status: task.status,
+    priority: task.priority,
+    startDate: task.startDate,
+    dueDate: task.dueDate,
+    createdAt: task.createdAt,
+    updatedAt: task.updatedAt,
+    deletedAt: task.deletedAt,
+  };
+
+  if (task.taskAttachments !== undefined) {
+    mapped.taskAttachments = task.taskAttachments;
+  }
+
+  if (task.assignee) {
+    mapped.assignee = {
+      memberId: task.assignee.id,
+      userId: task.assignee.userId,
+      name: task.assignee.user.name,
+      email: task.assignee.user.email,
+      role: task.assignee.role,
+      isActive: task.assignee.isActive,
+      joinedAt: task.assignee.joinedAt
+    };
+  } else {
+    mapped.assignee = null;
+  }
+
+  return mapped;
+};
+
+export const handleGetTaskAttachments = async (req, res, next) => {
+  try {
+    const { taskId } = req.params;
+    const { type = 'all' } = req.query;
+
+    const attachments = await getTaskAttachmentsService({ taskId, type });
+    return successResponse(res, "Task attachments retrieved successfully", attachments);
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const handleGetTaskById = async (req, res, next) => {
   try {
     //task id
     const taskId = req.params.taskId;
-    const task = await getTaskByIdService({ taskId, withDeleted: false });
+    const includeAttachments = req.query.includeAttachments === 'true' || req.query.include === 'attachments';
+    const task = await getTaskByIdService({ taskId, withDeleted: false, includeAttachments });
 
     // if (!task) return res.status(404).json({ message: 'Task not found' });
 
-    return successResponse(res, null, task);
+    return successResponse(res, null, mapTaskDetail(task));
   } catch (error) {
     next(error);
   }
@@ -206,11 +280,12 @@ export const handleGetTaskByIdFromAll = async (req, res, next) => {
   try {
     //task id
     const taskId = req.params.taskId;
-    const task = await getTaskByIdService({ taskId, withDeleted: true });
+    const includeAttachments = req.query.includeAttachments === 'true' || req.query.include === 'attachments';
+    const task = await getTaskByIdService({ taskId, withDeleted: true, includeAttachments });
 
     // if (!task) return res.status(404).json({ message: 'Task not found' });
 
-    return successResponse(res, null, task);
+    return successResponse(res, null, mapTaskDetail(task));
   } catch (error) {
     next(error);
   }
@@ -222,7 +297,7 @@ export const handleUpdateTask = async (req, res, next) => {
     const taskId = req.params.taskId;
     const assigneeUserId = req.assigneeUserId;
     // const projectId = req.taskProjectId;
-    const updatedTask = await editTaskService({ taskId, ownerEmail, assigneeUserId, data: req.body });
+    const updatedTask = await editTaskService({ userId: req.user.id, taskId, ownerEmail, assigneeUserId, data: req.body });
     return successResponse(res, "success updating task", updatedTask);
   } catch (error) {
     next(error);
@@ -235,6 +310,17 @@ export const handleStatusUpdateTask = async (req, res, next) => {
     const taskId = req.params.taskId;
     const updatedTask = await editTaskService({ userId, taskId, data: req.body, statusUpdate: true });
     return successResponse(res, "task status success changed", updatedTask);
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const handleProgressUpdateTask = async (req, res, next) => {
+  try {
+    const userId = req.user.id;
+    const taskId = req.params.taskId;
+    const updatedTask = await editTaskService({ userId, taskId, data: req.body, statusUpdate: true });
+    return successResponse(res, "task progress success changed", updatedTask);
   } catch (error) {
     next(error);
   }
@@ -265,22 +351,26 @@ export const handleRestoreSoftDeletedTask = async (req, res, next) => {
   }
 };
 
-export const handleDeleteTaskImage = async (req, res, next) => {
+// task attachment handling (delete)
+export const handleDeleteTaskAttachment = async (req, res, next) => {
   try {
-    const { imageId } = req.params;
+    const userId = req.user.id;
+    const { taskId, attachmentId, imageId } = req.params;
+    const targetId = attachmentId || imageId;
 
-    if (!imageId) {
-      throw new BadRequestError({ message: 'imageId are required' });
+    if (!targetId) {
+      throw new BadRequestError('attachmentId is required');
     }
 
-    // You should implement deleteTaskImageService in your service layer
-    await deleteTaskImageService(imageId);
+    await deleteTaskAttachmentService({ userId, taskId, attachmentId: targetId });
 
-    return successResponse(res, "Task image deleted successfully");
+    return successResponse(res, "Task attachment deleted successfully");
   } catch (error) {
     next(error);
   }
 };
+
+export const handleDeleteTaskImage = handleDeleteTaskAttachment;
 
 export const handleDeleteTask = async (req, res, next) => {
   try {
@@ -359,4 +449,18 @@ export const handleBulkMarkTasksCompleted = async (req, res, next) => {
     next(error);
   }
 };
+
+export const handleGetUserTaskCounts = async (req, res, next) => {
+  try {
+    const userId = req.user.id;
+    const counts = await getUserTaskCountsService(userId);
+    return res.status(200).json({
+      status: "success",
+      counts,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 

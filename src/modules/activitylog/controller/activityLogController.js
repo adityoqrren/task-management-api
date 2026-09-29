@@ -5,11 +5,20 @@ import {
   getUserActivityLogsService
 } from '../service/activityLogService.js';
 
+const DEFAULT_LIMIT = 20;
+const MAX_LIMIT = 100;
+
+const parseLimit = (value) => {
+  const parsed = parseInt(value, 10);
+  if (Number.isNaN(parsed) || parsed < 1) return DEFAULT_LIMIT;
+  return Math.min(parsed, MAX_LIMIT);
+};
+
 export const handleGetProjectActivityLogs = async (req, res, next) => {
   try {
     const { projectId } = req.params;
     const { cursor } = req.query;
-    const limit = parseInt(req.query.limit, 10) || 20;
+    const limit = parseLimit(req.query.limit);
 
     const result = await getProjectActivityLogsService({
       projectId,
@@ -30,7 +39,7 @@ export const handleGetTaskActivityLogs = async (req, res, next) => {
     const { taskId } = req.params;
     const { cursor } = req.query;
 
-    const limit = parseInt(req.query.limit, 10) || 20;
+    const limit = parseLimit(req.query.limit);
 
     const result = await getTaskActivityLogsService({
       taskId,
@@ -50,7 +59,7 @@ export const handleGetUserActivityLogs = async (req, res, next) => {
   try {
     const userId = req.user.id;
     const { cursor } = req.query;
-    const limit = parseInt(req.query.limit, 10) || 20;
+    const limit = parseLimit(req.query.limit);
 
     const result = await getUserActivityLogsService({
       userId,
