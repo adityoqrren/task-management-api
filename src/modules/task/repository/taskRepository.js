@@ -17,7 +17,17 @@ export const addTaskAttachment = async (data) => {
   return await prisma.taskAttachments.create({
     data,
     include: {
-      task: true,
+      task: {
+        include: {
+          project: {
+            select: {
+              id: true,
+              name: true,
+              owner: true,
+            },
+          },
+        }
+      },
     }
   });
 };
@@ -290,7 +300,21 @@ export const restoreSoftDeletedTasksByProjectId = async (projectId) => {
 }
 
 export const deleteTaskAttachment = async (id) => {
-  return await prisma.taskAttachments.delete({ where: { id } });
+  return await prisma.taskAttachments.delete({
+    where: { id }, include: {
+      task: {
+        include: {
+          project: {
+            select: {
+              id: true,
+              name: true,
+              owner: true,
+            },
+          },
+        }
+      },
+    }
+  });
 };
 
 export const deleteTaskImage = deleteTaskAttachment;

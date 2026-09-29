@@ -64,6 +64,8 @@ export const checkProjectRoleForTask = (allowedRoles = [], all = false) => {
 
     if (!member) return next(new ForbiddenError('User is not a member of this project'));
 
+    if (!member.isActive) return next(new ForbiddenError('Inactive member of this project'));
+
     if (!allowedRoles.includes(member.role)) {
       return next(new ForbiddenError('You are not authorized to perform this action'));
     }

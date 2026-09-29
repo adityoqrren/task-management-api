@@ -1,5 +1,22 @@
 import prisma from "../../../db/db.js";
 
+const cursorFilter = (cursor) =>
+  cursor
+    ? [
+        {
+          OR: [
+            { createdAt: { lt: cursor.createdAt } },
+            { createdAt: cursor.createdAt, id: { lt: cursor.id } },
+          ],
+        },
+      ]
+    : [];
+
+const withUserNames = {
+  actor: { select: { name: true } },
+  targetUser: { select: { name: true } },
+};
+
 export const findActivityLogsByProjectId = async ({
   projectId,
   cursor,
@@ -7,24 +24,17 @@ export const findActivityLogsByProjectId = async ({
 }) => {
   return prisma.activityLogs.findMany({
     where: {
-      projectId,
-      ...(cursor && {
-        OR: [
-          {
-            createdAt: { lt: cursor.createdAt }
-          },
-          {
-            createdAt: cursor.createdAt,
-            id: { lt: cursor.id }
-          }
-        ]
-      })
+      AND: [
+        { projectId },
+        ...cursorFilter(cursor),
+      ],
     },
+    include: withUserNames,
     orderBy: [
       { createdAt: 'desc' },
       { id: 'desc' },
     ],
-    take: limit
+    take: limit + 1
   });
 };
 
@@ -35,25 +45,22 @@ export const findActivityLogsByTaskId = async ({
 }) => {
   return prisma.activityLogs.findMany({
     where: {
-      entityType: 'task',
-      entityId: taskId,
-      ...(cursor && {
-        OR: [
-          {
-            createdAt: { lt: cursor.createdAt }
-          },
-          {
-            createdAt: cursor.createdAt,
-            id: { lt: cursor.id }
-          }
-        ]
-      })
+      AND: [
+        {
+          OR: [
+            { taskId },
+            { entityType: 'task', entityId: taskId },
+          ],
+        },
+        ...cursorFilter(cursor),
+      ],
     },
+    include: withUserNames,
     orderBy: [
       { createdAt: 'desc' },
       { id: 'desc' },
     ],
-    take: limit
+    take: limit + 1
   });
 };
 
@@ -64,26 +71,21 @@ export const findActivityLogsByUserId = async ({
 }) => {
   return prisma.activityLogs.findMany({
     where: {
-      OR: [
-        { actorId: userId },
-        { targetUserId: userId }
+      AND: [
+        {
+          OR: [
+            { actorId: userId },
+            { targetUserId: userId },
+          ],
+        },
+        ...cursorFilter(cursor),
       ],
-      ...(cursor && {
-        OR: [
-          {
-            createdAt: { lt: cursor.createdAt }
-          },
-          {
-            createdAt: cursor.createdAt,
-            id: { lt: cursor.id }
-          }
-        ]
-      })
     },
+    include: withUserNames,
     orderBy: [
       { createdAt: 'desc' },
       { id: 'desc' },
     ],
-    take: limit
+    take: limit + 1
   });
 };

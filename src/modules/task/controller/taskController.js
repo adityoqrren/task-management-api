@@ -354,6 +354,7 @@ export const handleRestoreSoftDeletedTask = async (req, res, next) => {
 // task attachment handling (delete)
 export const handleDeleteTaskAttachment = async (req, res, next) => {
   try {
+    const userId = req.user.id;
     const { taskId, attachmentId, imageId } = req.params;
     const targetId = attachmentId || imageId;
 
@@ -361,7 +362,7 @@ export const handleDeleteTaskAttachment = async (req, res, next) => {
       throw new BadRequestError('attachmentId is required');
     }
 
-    await deleteTaskAttachmentService({ taskId, attachmentId: targetId });
+    await deleteTaskAttachmentService({ userId, taskId, attachmentId: targetId });
 
     return successResponse(res, "Task attachment deleted successfully");
   } catch (error) {

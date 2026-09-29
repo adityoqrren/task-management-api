@@ -6,12 +6,13 @@ import { getAllTasksService, restoreSoftDeletedTasksByProjectIdService, softDele
 import { getUserById } from '../../user/repository/userRepository.js';
 import CacheService from '../../../cache/cacheService.js';
 import { generateEventId } from '../../../shared/utils/uuid.js';
+import { sanitizeDescription } from '../../../shared/utils/sanitizeHtml.js';
 import publishEvent from '../../../queue/event/eventPublisher.js';
 
 const redisClient = new CacheService();
 
 export const addNewProjectService = async ({ name, userId, description }) => {
-    const project = await addProject({ name, userId, description });
+    const project = await addProject({ name, userId, description: sanitizeDescription(description) });
 
     //insert creator as leader in project's member
     const projectMember = await addProjectMember({
@@ -173,7 +174,11 @@ export const editProjectService = async ({ userId, projectId, data }) => {
     const project = await getProjectById(projectId)
     if (!project) throw new NotFoundError('Project not found')
     if (project.owner !== userId) throw new ForbiddenError("You are not a member of this project")
-    const { id, name } = await editProject(projectId, data)
+
+    const sanitizedData = data.description !== undefined
+        ? { ...data, description: sanitizeDescription(data.description) }
+        : data;
+    const { id, name } = await editProject(projectId, sanitizedData)
 
     //publish project.updated event to queue
     await publishEvent({

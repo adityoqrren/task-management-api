@@ -10,6 +10,7 @@ import CacheService from "../../../cache/cacheService.js";
 import { sendEmailMessage } from "../../../queue/emailProducer.js";
 import publishEvent from "../../../queue/event/eventPublisher.js";
 import { generateEventId } from "../../../shared/utils/uuid.js";
+import { sanitizeDescription } from "../../../shared/utils/sanitizeHtml.js";
 
 const storageService = new StorageService();
 const redisClient = new CacheService();
@@ -26,6 +27,9 @@ const generateUniqueFileName = (baseName) => {
 };
 
 export const addTaskService = async (userId, data) => {
+  if (data.description !== undefined) {
+    data.description = sanitizeDescription(data.description);
+  }
   if (data.status) {
     if (data.status === 'DONE') {
       data.completed = true;
@@ -65,62 +69,6 @@ export const addTaskService = async (userId, data) => {
   await updateProjectLastActivityService(addedTask.projectId);
   return addedTask;
 };
-
-export const addTaskAttachmentService = async ({ taskId, userId, fileName, originalFileName, fileBuffer, objectKey, fileMimeType, size }) => {
-  // upload to bucket
-  const presignedUrlFromBucket = await storageService.writeFile(fileBuffer, objectKey, fileMimeType);
-
-  // determine a unique display file name within this task, resilient to concurrent uploads
-  let attachment;
-  for (let attempt = 0; attempt < MAX_FILE_NAME_ATTEMPTS; attempt++) {
-    const existingFileNames = await getTaskAttachmentFilenamesByTaskId(taskId);
-    const displayFileName = existingFileNames.includes(fileName)
-      ? generateUniqueFileName(fileName)
-      : fileName;
-
-    try {
-      attachment = await addTaskAttachment({
-        taskId,
-        userId,
-        fileName: displayFileName,
-        originalFileName,
-        bucketKey: process.env.R2_BUCKET_NAME,
-        objectKey,
-        mimeType: fileMimeType,
-        size,
-      });
-      break;
-    } catch (error) {
-      // P2002 = unique constraint violation on [taskId, fileName] (race with a concurrent upload)
-      if (error?.code === 'P2002') {
-        continue;
-      }
-      throw error;
-    }
-  }
-
-  if (!attachment) {
-    throw new InternalServerError('Failed to generate a unique file name for the attachment');
-  }
-
-  await updateProjectLastActivityService(attachment.task.projectId);
-  return {
-    id: attachment.id,
-    taskId,
-    userId,
-    projectId: attachment.task.projectId,
-    taskTitle: attachment.task.title,
-    fileName: attachment.fileName,
-    originalFileName: attachment.originalFileName,
-    mimeType: attachment.mimeType,
-    size: attachment.size,
-    fileUrl: presignedUrlFromBucket,
-    createdAt: attachment.createdAt,
-    updatedAt: attachment.updatedAt,
-  };
-};
-
-export const addTaskImageService = addTaskAttachmentService;
 
 //TODO: if getAllTasksByProjectIdService and getAllTasksByUserIdService have many similar code, refactor it
 export const getAllTasksService = async (status, queryParams) => {
@@ -214,26 +162,6 @@ export const getTaskByIdService = async ({ taskId, withDeleted, includeAttachmen
 
   const { taskAttachments, ...taskDetail } = task;
   return taskDetail;
-};
-
-export const getTaskAttachmentsService = async ({ taskId, type = 'all' }) => {
-  const task = await getTaskById(taskId, false);
-  if (!task) throw new NotFoundError('Task not found');
-
-  const attachments = await getTaskAttachmentsByTaskId(taskId, type);
-  const attachmentsWithUrl = await Promise.all(attachments.map(async (attachment) => {
-    const { bucketKey, objectKey, ...detail } = attachment;
-    const fileUrl = await storageService.createPreSignedUrl({
-      bucket: bucketKey,
-      key: objectKey,
-    });
-    return {
-      ...detail,
-      fileUrl,
-    };
-  }));
-
-  return attachmentsWithUrl;
 };
 
 export const getTasksByIdsService = async ({ taskIds, withDeleted }) => {
@@ -382,6 +310,10 @@ export const editTaskService = async ({ userId, taskId, ownerEmail, assigneeUser
   // const taskExisting = await getTaskById(taskId, false)
   // const existingUserId = taskExisting.assignee?.userId ?? null;
 
+  if (data.description !== undefined) {
+    data.description = sanitizeDescription(data.description);
+  }
+
   if (data.priority) {
     data.priority = data.priority.toUpperCase();
   }
@@ -452,7 +384,7 @@ export const editTaskService = async ({ userId, taskId, ownerEmail, assigneeUser
     await publishEvent({
       id: 'event-' + generateEventId(),
       type: 'task.updated',
-      actorId: editedTask.project.owner,
+      actorId: userId, // owner or assignee can update
       occurredAt: new Date().toISOString(),
       payload: {
         taskId: editedTask.id,
@@ -624,22 +556,6 @@ export const restoreSoftDeletedTasksByProjectIdService = async ({ projectId }) =
   }
 }
 
-export const deleteTaskAttachmentService = async ({ taskId, attachmentId }) => {
-  const existing = await getTaskAttachmentById(taskId, attachmentId);
-  if (!existing) throw new NotFoundError('Attachment not found');
-  const deleteFromBucket = await storageService.deleteFile(existing.objectKey);
-  if (!deleteFromBucket.success) {
-    throw new BadRequestError('Failed to delete file from storage');
-  }
-  const deletedAttachment = await deleteTaskAttachment(attachmentId);
-  await updateProjectLastActivityService(existing.task.projectId);
-  return deletedAttachment;
-};
-
-export const deleteTaskImageService = async ({ taskId, imageId }) => {
-  return await deleteTaskAttachmentService({ taskId, attachmentId: imageId });
-};
-
 export const deleteTaskService = async ({ userId, taskId }) => {
   const existing = await getTaskById(taskId, true);
   if (!existing) throw new NotFoundError('Task not found');
@@ -666,6 +582,152 @@ export const deleteTaskService = async ({ userId, taskId }) => {
   });
   await updateProjectLastActivityService(deletedTask.projectId);
   return deletedTask;
+};
+
+// Task Attachment
+export const addTaskAttachmentService = async ({ taskId, userId, fileName, originalFileName, fileBuffer, objectKey, fileMimeType, size }) => {
+  // upload to bucket
+  const presignedUrlFromBucket = await storageService.writeFile(fileBuffer, objectKey, fileMimeType);
+
+  // determine a unique display file name within this task, resilient to concurrent uploads
+  let attachment;
+  for (let attempt = 0; attempt < MAX_FILE_NAME_ATTEMPTS; attempt++) {
+    const existingFileNames = await getTaskAttachmentFilenamesByTaskId(taskId);
+    const displayFileName = existingFileNames.includes(fileName)
+      ? generateUniqueFileName(fileName)
+      : fileName;
+
+    try {
+      attachment = await addTaskAttachment({
+        taskId,
+        userId,
+        fileName: displayFileName,
+        originalFileName,
+        bucketKey: process.env.R2_BUCKET_NAME,
+        objectKey,
+        mimeType: fileMimeType,
+        size,
+      });
+      break;
+    } catch (error) {
+      // P2002 = unique constraint violation on [taskId, fileName] (race with a concurrent upload)
+      if (error?.code === 'P2002') {
+        continue;
+      }
+      throw error;
+    }
+  }
+
+  if (!attachment) {
+    throw new InternalServerError('Failed to generate a unique file name for the attachment');
+  }
+
+  await publishEvent({
+    id: `event-${generateEventId()}`,
+    type: "task.attachment.added",
+    actorId: userId,
+    occurredAt: new Date().toISOString(),
+    payload: {
+      attachmentId: attachment.id,
+      taskId: attachment.task.id,
+      taskTitle: attachment.task.title,
+      projectId: attachment.task.projectId,
+      projectName: attachment.task.project.name,
+      fileName: attachment.fileName,
+      originalFileName: attachment.originalFileName,
+      attachmentOwnerId: attachment.userId,
+      assignedUserId: attachment.task.assigneeId ?? null,
+      ownerId: attachment.task.project.owner,
+    },
+  });
+
+  await updateProjectLastActivityService(attachment.task.projectId);
+  return {
+    id: attachment.id,
+    taskId,
+    userId,
+    projectId: attachment.task.projectId,
+    taskTitle: attachment.task.title,
+    fileName: attachment.fileName,
+    originalFileName: attachment.originalFileName,
+    mimeType: attachment.mimeType,
+    size: attachment.size,
+    fileUrl: presignedUrlFromBucket,
+    createdAt: attachment.createdAt,
+    updatedAt: attachment.updatedAt,
+  };
+};
+
+export const addTaskImageService = addTaskAttachmentService;
+
+export const getTaskAttachmentsService = async ({ taskId, type = 'all' }) => {
+  const task = await getTaskById(taskId, false);
+  if (!task) throw new NotFoundError('Task not found');
+
+  const attachments = await getTaskAttachmentsByTaskId(taskId, type);
+  const attachmentsWithUrl = await Promise.all(attachments.map(async (attachment) => {
+    const { bucketKey, objectKey, ...detail } = attachment;
+    const fileUrl = await storageService.createPreSignedUrl({
+      bucket: bucketKey,
+      key: objectKey,
+    });
+    return {
+      ...detail,
+      fileUrl,
+    };
+  }));
+
+  return attachmentsWithUrl;
+};
+
+export const deleteTaskAttachmentService = async ({ userId, taskId, attachmentId }) => {
+  const existing = await getTaskAttachmentById(taskId, attachmentId);
+  if (!existing) throw new NotFoundError('Attachment not found');
+  const deletedAttachment = await deleteTaskAttachment(attachmentId);
+
+  // deleting from bucket
+  // TODO: in the next step after outbox pattern implemented, we must use transaction for this stuff too
+  try {
+    const deleteFromBucket = await storageService.deleteFile(
+      existing.objectKey
+    );
+
+    if (!deleteFromBucket.success) {
+      console.error(
+        `Failed to delete attachment object from storage: ${existing.objectKey}`
+      );
+    }
+  } catch (error) {
+    console.error(
+      `Failed to delete attachment object from storage: ${error.message}`
+    );
+  }
+
+  //TODO: implement Outbox Pattern soon. publishing event no need in this function after that.
+  await publishEvent({
+    id: `event-${generateEventId()}`,
+    type: "task.attachment.deleted",
+    actorId: userId,
+    occurredAt: new Date().toISOString(),
+    payload: {
+      attachmentId: deletedAttachment.id,
+      taskId: deletedAttachment.task.id,
+      taskTitle: deletedAttachment.task.title,
+      projectId: deletedAttachment.task.projectId,
+      projectName: deletedAttachment.task.project.name,
+      fileName: deletedAttachment.fileName,
+      originalFileName: deletedAttachment.originalFileName,
+      attachmentOwnerId: deletedAttachment.userId,
+      assignedUserId: deletedAttachment.task.assigneeId ?? null,
+      ownerId: deletedAttachment.task.project.owner,
+    },
+  });
+  await updateProjectLastActivityService(existing.task.projectId);
+  return deletedAttachment;
+};
+
+export const deleteTaskImageService = async ({ taskId, imageId }) => {
+  return await deleteTaskAttachmentService({ taskId, attachmentId: imageId });
 };
 
 
