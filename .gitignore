@@ -8,3 +8,4 @@ verify_*.js
 check.js
 scratch/
 .scratch
+/cert
