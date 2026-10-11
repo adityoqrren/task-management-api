@@ -18,8 +18,8 @@ export const hashToken = (token) => {
     return crypto.createHash('sha256').update(token).digest('hex')
 }
 
-console.log('Access Token Secret (Hex):', accessTokenSecret);
-console.log('Refresh Token Secret (Hex):', refreshTokenSecret);
+console.log('[generated] Access Token Secret (Hex):', accessTokenSecret);
+console.log('[generated] Refresh Token Secret (Hex):', refreshTokenSecret);
 console.log('------------------------------------');
-console.log('Access Token Secret (Base64):', accessTokenSecretBase64);
-console.log('Refresh Token Secret (Base64):', refreshTokenSecretBase64);
+console.log('[generated] Access Token Secret (Base64):', accessTokenSecretBase64);
+console.log('[generated] Refresh Token Secret (Base64):', refreshTokenSecretBase64);

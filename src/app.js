@@ -41,5 +41,5 @@ app.use('/api/dashboard', dashboardRoutes);
 app.use(errorHandler);
 
 app.listen(PORT, () => {
-  console.log(`Server running at http://localhost:${PORT}`);
+  console.log(`Server running at http://localhost:${PORT} in env : ${process.env.NODE_ENV}`);
 });

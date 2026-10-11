@@ -36,8 +36,8 @@ export const handleLogin = async (req, res, next) => {
     // WEB → set HttpOnly cookies
     res.cookie('accessToken', accessToken, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'strict',
+      secure: process.env.NODE_ENV === 'production', // if api accessed via https set true. in production  = true, local = false because http
+      sameSite: 'strict', // set to None if we want to test from local. set strict for production. if None, secure must be true
       maxAge: 1 * 60 * 1000
     })
 

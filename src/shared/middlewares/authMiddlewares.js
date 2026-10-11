@@ -17,7 +17,7 @@ export const authenticate = (req, res, next) => {
       token = cookieToken;
     }
 
-    console.log(`token: ${token}`);
+    //console.log(`token: ${token}`);
 
     if (!token) {
       throw new UnauthorizedError('Unauthorized: No token provided')
