@@ -4,8 +4,10 @@ import { BadRequestError, UnauthorizedError } from '../../../exceptions/errors.j
 import { generateTokens } from '../../../jwt/jwt.js';
 import { hashToken } from '../../../shared/utils/generate.js';
 import { getUserByIdService } from '../../user/service/userService.js';
+import StorageService from '../../../storage/storageService.js';
 
 const SALT_ROUNDS = 10;
+const storageService = new StorageService();
 
 export const registerUserService = async ({ email, username, name, password }) => {
   const existing = await getUserByEmail(email);
@@ -50,7 +52,24 @@ export const loginUserService = async ({ email, password }) => {
 
 export const getInfoUserLoginService = async (email) => {
   const existing = await getUserByEmail(email);
-  return existing;
+  if (!existing) {
+    throw new UnauthorizedError('User not found');
+  }
+
+  const { profilePicture, ...userDetail } = existing;
+
+  let photoProfile = null;
+  if (profilePicture) {
+    photoProfile = await storageService.createPreSignedUrl({
+      bucket: process.env.R2_BUCKET_NAME,
+      key: profilePicture,
+    });
+  }
+
+  return {
+    ...userDetail,
+    photoProfile,
+  };
 }
 
 // export const updateTokenService = async (refreshToken) => {

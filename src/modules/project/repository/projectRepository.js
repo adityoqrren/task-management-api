@@ -151,7 +151,9 @@ export const getAllProjectMembers = async (projectId) => {
             id: true,
             user: {
                 select: {
-                    name: true
+                    name: true,
+                    username: true,
+                    profilePicture: true,
                 }
             },
             projectId: true,
@@ -166,6 +168,8 @@ export const getAllProjectMembers = async (projectId) => {
         memberId: res.id,
         userId: res.userId,
         name: res.user.name,
+        username: res.user.username,
+        profilePicture: res.user.profilePicture,
         projectId: res.projectId,
         role: res.role,
         isActive: res.isActive,

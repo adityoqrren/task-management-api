@@ -14,12 +14,13 @@ datasource db {
 }
 
 model Users {
-  id        String   @id @default(uuid())
-  email     String   @unique
-  username  String   @unique
-  name      String
-  password  String
-  createdAt DateTime @default(now()) @map("created_at")
+  id             String   @id @default(uuid())
+  email          String   @unique
+  username       String   @unique
+  name           String
+  password       String
+  profilePicture String?  @map("profile_picture")
+  createdAt      DateTime @default(now()) @map("created_at")
 
   //Relation
   projects         Projects[]       @relation("ProjectLeader")

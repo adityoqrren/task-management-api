@@ -19,6 +19,7 @@ export const getUserByEmail = async (email) => {
             username: true,
             name: true,
             email: true,
+            profilePicture: true,
             createdAt: true
         }
     });

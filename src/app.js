@@ -18,8 +18,19 @@ import cookieParser from 'cookie-parser';
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+const allowedOrigins = [
+  "http://localhost:3001",
+  "https://taskflow.adityop.web.id",
+];
+
 app.use(cors({
-  origin: "http://localhost:3001",
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+
+    return callback(new Error("Not allowed by CORS"));
+  },
   credentials: true,
 }));
 
