@@ -1,4 +1,5 @@
 import { ZodError } from "zod";
+import multer from "multer";
 
 function errorHandler(err, req, res, next) {
   // 1. Zod validation error
@@ -11,6 +12,18 @@ function errorHandler(err, req, res, next) {
         path: e.path.join("."),
         message: e.message,
       })),
+    });
+  }
+
+  // 1b. Multer upload error (e.g. file too large)
+  if (err instanceof multer.MulterError) {
+    const statusCode = err.code === "LIMIT_FILE_SIZE" ? 413 : 400;
+    const message = err.code === "LIMIT_FILE_SIZE"
+      ? "File too large. Maximum allowed size exceeded."
+      : `Upload error: ${err.message}`;
+    return res.status(statusCode).json({
+      status: "fail",
+      message,
     });
   }
 

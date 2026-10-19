@@ -52,6 +52,51 @@ export const getUserById = async (id) => {
     });
 };
 
+export const updateUserFullname = async (id, name) => {
+    return await prisma.users.update({
+        where: {
+            id
+        },
+        data: {
+            name
+        },
+        select: {
+            id: true,
+            username: true,
+            name: true,
+            email: true,
+            createdAt: true
+        }
+    });
+};
+
+export const updateUserProfilePicture = async (id, objectKey) => {
+    return await prisma.users.update({
+        where: {
+            id
+        },
+        data: {
+            profilePicture: objectKey
+        },
+        select: {
+            id: true,
+            profilePicture: true
+        }
+    });
+};
+
+export const getUserProfilePicture = async (id) => {
+    return await prisma.users.findFirst({
+        where: {
+            id
+        },
+        select: {
+            id: true,
+            profilePicture: true
+        }
+    });
+};
+
 // export const getUser = async (nameToFind, userIdToFind) => {
 //     console.log(`in getUser ${nameToFind} || ${userIdToFind}`);
 //     const result =  await prisma.user.findMany({

@@ -8,8 +8,10 @@ import CacheService from '../../../cache/cacheService.js';
 import { generateEventId } from '../../../shared/utils/uuid.js';
 import { sanitizeDescription } from '../../../shared/utils/sanitizeHtml.js';
 import publishEvent from '../../../queue/event/eventPublisher.js';
+import StorageService from '../../../storage/storageService.js';
 
 const redisClient = new CacheService();
+const storageService = new StorageService();
 
 export const addNewProjectService = async ({ name, userId, description }) => {
     const project = await addProject({ name, userId, description: sanitizeDescription(description) });
@@ -78,9 +80,23 @@ export const addProjectMemberService = async ({ projectId, userId }) => {
 }
 
 export const getProjectMembersService = async (projectId) => {
-    const projects = await getAllProjectMembers(projectId);
+    const members = await getAllProjectMembers(projectId);
+    const membersWithPhoto = await Promise.all(
+        members.map(async (member) => {
+            let photoProfile = null;
+            if (member.profilePicture) {
+                photoProfile = await storageService.createPreSignedUrl({
+                    bucket: process.env.R2_BUCKET_NAME,
+                    key: member.profilePicture,
+                });
+            }
+            return {
+                ...member,
+                photoProfile
+            }
+        }))
     // if (!projects) throw new Error('Project not found')
-    return projects;
+    return membersWithPhoto;
 };
 
 export const getProjectMemberByMemberIdService = async ({ projectId, memberId }) => {
