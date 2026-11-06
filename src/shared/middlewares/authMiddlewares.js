@@ -1,5 +1,6 @@
 import jwt from 'jsonwebtoken'
 import { UnauthorizedError } from '../../exceptions/errors.js';
+import { unauthorizedLimiter } from './rateLimiter.js';
 
 export const authenticate = (req, res, next) => {
   try {
@@ -33,6 +34,8 @@ export const authenticate = (req, res, next) => {
       throw new UnauthorizedError('Unauthorized: Invalid token');
     }
   } catch (error) {
-    next(error)
+    // Count failed/anonymous attempts per IP before returning the auth error,
+    // otherwise requests that never authenticate would bypass the route limiter.
+    unauthorizedLimiter(req, res, () => next(error))
   }
 }

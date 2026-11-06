@@ -25,10 +25,12 @@ import { validateRequest } from '../../shared/middlewares/validateRequest.js';
 import { assignTaskSchema, updateTaskSchema, updateTaskStatusSchema, updateTaskProgressSchema, postTaskSchema, postTaskImageSchema, postTaskAttachmentSchema, getTaskAttachmentsQuerySchema } from './taskValidation.js';
 import taskCommentRoutes from "../taskcomment/taskCommentRoutes.js";
 import { uploadImage, uploadDocument } from '../../shared/middlewares/uploadMiddleware.js';
+import { tasksLimiter } from '../../shared/middlewares/rateLimiter.js';
 
 const router = express.Router();
 
 router.use(authenticate);
+router.use(tasksLimiter);
 // router.use(apiLimiter);
 
 /**

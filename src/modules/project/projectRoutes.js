@@ -3,11 +3,14 @@ import { authenticate } from '../../shared/middlewares/authMiddlewares.js';
 import { handleAddProjectMember, handlePostProject, handleDeleteProject, handleGetProjectById, handleGetProjectMembers, handleGetProjects, handleUpdateProject, handleUpdateActiveProjectMember, handleSoftDeleteProject, handleGetProjectByIdFromAll, handleGetProjectTasks, handleRestoreSoftDeletedProject, handleGetProjectStatistics, handleGetRecentProjectTasks } from './controller/projectController.js';
 import { checkProjectRole } from '../../shared/middlewares/checkProjectRole.js';
 import { validateRequest } from '../../shared/middlewares/validateRequest.js';
-import { postMemberSchema, postProjectSchema, updateMemberActiveStatusSchema } from './projectValidation.js';;
+import { postMemberSchema, postProjectSchema, updateMemberActiveStatusSchema } from './projectValidation.js';
+import { projectsLimiter } from '../../shared/middlewares/rateLimiter.js';
+;
 
 const router = express.Router();
 
 router.use(authenticate);
+router.use(projectsLimiter);
 
 /**
  * @swagger

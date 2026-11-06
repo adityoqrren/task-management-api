@@ -11,10 +11,12 @@ import { authenticate } from '../../shared/middlewares/authMiddlewares.js';
 import { validateRequest } from '../../shared/middlewares/validateRequest.js';
 import { uploadImage } from '../../shared/middlewares/uploadMiddleware.js';
 import { updateProfileSchema } from './userValidation.js';
+import { usersLimiter } from '../../shared/middlewares/rateLimiter.js';
 //import { apiLimiter } from '../../../shared/middlewares/rateLimiter.js';
 const router = express.Router();
 
 router.use(authenticate);
+router.use(usersLimiter);
 //router.use(apiLimiter);
 
 /**

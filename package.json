@@ -7,7 +7,8 @@
     "dev": "dotenv -e .env.dev -- nodemon src/app.js",
     "dev:production": "dotenv -e .env.production -- nodemon src/app.js",
     "start": "node src/app.js",
-    "prisma": "prisma"
+    "prisma": "prisma",
+    "test:rate-limit": "node --env-file=.env.test tests/rateLimiter.test.js"
   },
   "keywords": [],
   "author": "",
@@ -26,6 +27,7 @@
     "express-rate-limit": "^7.5.0",
     "jsonwebtoken": "^9.0.2",
     "multer": "^2.0.2",
+    "rate-limit-redis": "^4.3.1",
     "redis": "^4.7.0",
     "sanitize-html": "^2.17.7",
     "swagger-jsdoc": "^6.2.8",

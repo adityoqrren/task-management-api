@@ -6,10 +6,12 @@ import {
 } from './controller/activityLogController.js';
 import { checkProjectRole, checkProjectRoleForTask } from '../../shared/middlewares/checkProjectRole.js';
 import { authenticate } from '../../shared/middlewares/authMiddlewares.js';
+import { activityLogsLimiter } from '../../shared/middlewares/rateLimiter.js';
 
 const router = express.Router();
 
 router.use(authenticate);
+router.use(activityLogsLimiter);
 
 /**
  * @swagger
