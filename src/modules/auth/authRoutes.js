@@ -3,6 +3,7 @@ import { handleRegister, handleLogin, handleGetUserInfoLogin, handleUpdateToken,
 import { authenticate } from '../../shared/middlewares/authMiddlewares.js';
 import { validateRequest, validateRequestAuth } from '../../shared/middlewares/validateRequest.js';
 import { loginSchema, registerSchema, updateTokenSchema } from './authValidation.js';
+import { loginLimiter, registerLimiter } from '../../shared/middlewares/rateLimiter.js';
 
 const router = express.Router();
 
@@ -23,6 +24,7 @@ const router = express.Router();
  *               - name
  *               - username
  *               - password
+ *               - turnstileToken
  *             properties:
  *               email:
  *                 type: string
@@ -36,6 +38,10 @@ const router = express.Router();
  *               password:
  *                 type: string
  *                 example: "securepassword123"
+ *               turnstileToken:
+ *                 type: string
+ *                 description: "Cloudflare Turnstile token from the client widget"
+ *                 example: "0.xxxxx"
  *     responses:
  *       201:
  *         description: User registered successfully
@@ -54,7 +60,7 @@ const router = express.Router();
  *               status: "error"
  *               message: "Email already registered"
  */
-router.post('/register', validateRequest(registerSchema), handleRegister);
+router.post('/register', registerLimiter, validateRequest(registerSchema), handleRegister);
 
 /**
  * @swagger
@@ -78,6 +84,10 @@ router.post('/register', validateRequest(registerSchema), handleRegister);
  *               password:
  *                 type: string
  *                 example: "securepassword123"
+ *               turnstileToken:
+ *                 type: string
+ *                 description: "Cloudflare Turnstile token. Required only when the account is under login protection (after repeated failed attempts)."
+ *                 example: "0.xxxxx"
  *     responses:
  *       200:
  *         description: Login successful
@@ -96,8 +106,15 @@ router.post('/register', validateRequest(registerSchema), handleRegister);
  *             example:
  *               status: "error"
  *               message: "Invalid credentials"
+ *       403:
+ *         description: "Additional verification required or Turnstile verification failed"
+ *         content:
+ *           application/json:
+ *             example:
+ *               status: "error"
+ *               message: "Additional verification required"
  */
-router.post('/login', validateRequest(loginSchema), handleLogin);
+router.post('/login', loginLimiter, validateRequest(loginSchema), handleLogin);
 
 /**
  * @swagger

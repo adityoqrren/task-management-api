@@ -18,6 +18,12 @@ import cookieParser from 'cookie-parser';
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Trust proxy : using remoteAddress
+
+if (process.env.NODE_ENV === 'production') {
+  app.set("trust proxy", process.env.REMOTE_ADDRESS);
+}
+
 const allowedOrigins = [
   "http://localhost:3001",
   "https://taskflow.adityop.web.id",
@@ -33,6 +39,18 @@ app.use(cors({
   },
   credentials: true,
 }));
+
+// temporary middleare to get container address for trust proxy and check if ip is real ip
+// app.use((req, res, next) => {
+//     console.log({
+//         remoteAddress: req.socket.remoteAddress,
+//         ip: req.ip,
+//         xForwardedFor: req.headers["x-forwarded-for"],
+//     });
+
+//     next();
+// });
+
 
 await initRabbit();
 

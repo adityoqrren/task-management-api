@@ -1,15 +1,37 @@
 import bcrypt from 'bcrypt'
 import { addRefreshToken, addUser, getUserByEmailOrUsername, getUserByEmail, getUserByUsername, getRefreshToken, updateRefreshToken } from '../repository/authRepository.js';
-import { BadRequestError, UnauthorizedError } from '../../../exceptions/errors.js';
+import { BadRequestError, ForbiddenError, UnauthorizedError } from '../../../exceptions/errors.js';
 import { generateTokens } from '../../../jwt/jwt.js';
 import { hashToken } from '../../../shared/utils/generate.js';
 import { getUserByIdService } from '../../user/service/userService.js';
 import StorageService from '../../../storage/storageService.js';
 
+import {
+  getLoginProtectionStatusService,
+  recordLoginFailureService,
+  resetLoginAttemptsService,
+} from '../../../shared/services/loginAttemptService.js';
+
+import {
+  LOGIN_EXPECTED_ACTION,
+  REGISTER_EXPECTED_ACTION,
+  verifyTurnstileService,
+} from '../../../shared/services/turnstileService.js';
+
 const SALT_ROUNDS = 10;
 const storageService = new StorageService();
 
-export const registerUserService = async ({ email, username, name, password }) => {
+export const registerUserService = async ({ email, username, name, password, turnstileToken, remoteIp }) => {
+  const isVerified = await verifyTurnstileService({
+    token: turnstileToken,
+    remoteIp,
+    expectedAction: REGISTER_EXPECTED_ACTION,
+  });
+
+  if (!isVerified) {
+    throw new ForbiddenError('Verification failed. Please try again.');
+  }
+
   const existing = await getUserByEmail(email);
   // console.log(existing);
   if (existing) {
@@ -27,28 +49,65 @@ export const registerUserService = async ({ email, username, name, password }) =
   return user;
 };
 
-export const loginUserService = async ({ email, password }) => {
-  // console.log(`${email} - ${password}`)
-  const user = await getUserByEmailOrUsername(email)
-  if (!user) throw new BadRequestError('Invalid email')
 
-  const isMatch = await bcrypt.compare(password, user.password)
-  if (!isMatch) throw new BadRequestError('Invalid password')
+export const loginUserService = async ({
+  email,
+  password,
+  turnstileToken,
+  remoteIp,
+}) => {
+  const user = await getUserByEmailOrUsername(email);
 
-  //Generate token yang mengandung data user_id
-  //Diencrypt dengan JWT_SECRET
-  const { accessToken, refreshToken } = generateTokens(user)
+  if (!user) {
+    throw new BadRequestError('Invalid credentials');
+  }
+
+  // Check whether additional verification is required.
+  const protection = await getLoginProtectionStatusService(user.id);
+
+  if (protection.required) {
+    if (!turnstileToken) {
+      throw new ForbiddenError('Additional verification required');
+    }
+
+    const isVerified = await verifyTurnstileService({
+      token: turnstileToken,
+      remoteIp,
+      expectedAction: LOGIN_EXPECTED_ACTION
+    }
+    );
+
+    //console.log(`ip here : ${remoteIp}`);
+    //console.log(`isVerified : ${isVerified}`)
+
+    if (!isVerified) {
+      throw new ForbiddenError('Verification failed. Please try again.');
+    }
+  }
+
+  const isMatch = await bcrypt.compare(password, user.password);
+
+  if (!isMatch) {
+    await recordLoginFailureService(user.id);
+
+    throw new BadRequestError('Invalid credentials');
+  }
+
+  const { accessToken, refreshToken } = generateTokens(user);
 
   const tokenHash = hashToken(refreshToken);
 
-  //store refresh token ke database
   await addRefreshToken(user.id, tokenHash);
+
+  // Clear account login protection after successful authentication.
+  await resetLoginAttemptsService(user.id);
 
   return {
     accessToken,
     refreshToken,
-  }
-}
+  };
+};
+
 
 export const getInfoUserLoginService = async (email) => {
   const existing = await getUserByEmail(email);

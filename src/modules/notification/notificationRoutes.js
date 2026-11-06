@@ -1,10 +1,12 @@
 import express from 'express';
 import { handleGetNotifications, handleGetUnreadCount, handleMarkAllNotificationsAsRead, handleMarkNotificationAsRead } from './controller/notificationController.js';
 import { authenticate } from '../../shared/middlewares/authMiddlewares.js';
+import { notificationsLimiter } from '../../shared/middlewares/rateLimiter.js';
 
 const router = express.Router();
 
 router.use(authenticate);
+router.use(notificationsLimiter);
 
 /**
  * @swagger

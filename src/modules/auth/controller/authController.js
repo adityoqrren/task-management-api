@@ -5,9 +5,9 @@ import { loginUserService } from '../service/authService.js'
 
 export const handleRegister = async (req, res, next) => {
   try {
-    const { email, username, name, password } = req.body;
+    const { email, username, name, password, turnstileToken } = req.body;
     // if (email && name && password) {
-    const user = await registerUserService({ email, username, name, password });
+    const user = await registerUserService({ email, username, name, password, turnstileToken, remoteIp: req.ip });
     const data = {
       userId: user.id,
     }
@@ -22,8 +22,11 @@ export const handleRegister = async (req, res, next) => {
 
 export const handleLogin = async (req, res, next) => {
   try {
-    const { email, password } = req.body
-    const { accessToken, refreshToken } = await loginUserService({ email, password })
+    const { email, password, turnstileToken } = req.body
+    const { accessToken, refreshToken } = await loginUserService({
+      email, password, turnstileToken,
+      remoteIp: req.ip,
+    })
     const isMobile = req.headers['x-client-type'] === 'mobile'
     // res.json(result)
     if (isMobile) {
