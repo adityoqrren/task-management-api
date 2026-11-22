@@ -285,19 +285,7 @@ Projects and tasks use `archivedAt` and `deletedAt` for reversible lifecycle ope
 
 ## Rate limits
 
-Rate limiting is Redis-backed. Limits apply per authenticated user or per IP:
-
-| Group | Window | Limit |
-| --- | --- | --- |
-| Projects | 1 minute | 120 |
-| Tasks | 1 minute | 120 |
-| Users | 1 minute | 60 |
-| Notifications | 1 minute | 120 |
-| Activity logs | 1 minute | 60 |
-| Dashboard | 1 minute | 60 |
-| Login | 15 minutes | 50 |
-| Register | 1 hour | 100 |
-| Unauthorized (failed auth) | 1 minute | 60 |
+Rate limiting is Redis-backed. Limits apply per authenticated user or per IP
 
 ## Scripts
 
@@ -309,14 +297,10 @@ Rate limiting is Redis-backed. Limits apply per authenticated user or per IP:
 | `npm run prisma:migrate:dev` | Apply migrations using `.env.dev` |
 | `npm run prisma:validate:dev` | Validate the Prisma schema |
 | `npm run prisma:format:dev` | Format the Prisma schema |
-| `npm run test:member-active` | Unit tests for member activation rules (self-contained) |
-| `npm run test:rate-limit` | Rate limiter checks against a running API |
-
-The test files live under `tests/`. `test:rate-limit` requires a running server, Redis, and a valid `TEST_COOKIE`.
 
 ## Notes for deployment
 
-- CORS allowed origins are hardcoded in `src/app.js` (`http://localhost:3001` and `https://taskflow.adityop.web.id`). Update the list for your frontend.
+- CORS allowed origins are hardcoded in `src/app.js`. Update the list for your frontend.
 - Cookies use `sameSite: 'strict'` and `secure` when `NODE_ENV=production`.
 - In production, set `REMOTE_ADDRESS` so Express trusts the proxy correctly.
 - RabbitMQ must be reachable before the process can start accepting traffic.
