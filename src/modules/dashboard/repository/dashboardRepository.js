@@ -7,6 +7,7 @@ export const countUserProjects = async (userId) => {
       isActive: true,
       project: {
         deletedAt: null,
+        archivedAt: null,
       },
     },
   });
@@ -26,6 +27,7 @@ export const getDashboardTaskStats = async (userId) => {
         },
         completed: false,
         deletedAt: null,
+        archivedAt: null,
       },
     }),
     // count dueSoon (uncompleted, due date between now and now + 3 days)
@@ -37,6 +39,7 @@ export const getDashboardTaskStats = async (userId) => {
         },
         completed: false,
         deletedAt: null,
+        archivedAt: null,
         dueDate: {
           gte: now,
           lte: threeDaysFromNow,
@@ -52,6 +55,7 @@ export const getDashboardTaskStats = async (userId) => {
         },
         completed: false,
         deletedAt: null,
+        archivedAt: null,
         dueDate: {
           lt: now,
         },

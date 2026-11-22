@@ -12,6 +12,8 @@ import {
   handleGetTaskAttachments,
   handlePostTask,
   handleRestoreSoftDeletedTask,
+  handleArchiveTask,
+  handleUnarchiveTask,
   handleSoftDeleteTask,
   handleStatusUpdateTask,
   handleProgressUpdateTask,
@@ -22,7 +24,7 @@ import { authenticate } from '../../shared/middlewares/authMiddlewares.js';
 // import { cacheTasks } from '../../shared/middlewares/caching.js';
 import { checkProjectRole, checkProjectRoleForTask, checkProjectRoleForUpdateStatusTask } from '../../shared/middlewares/checkProjectRole.js';
 import { validateRequest } from '../../shared/middlewares/validateRequest.js';
-import { assignTaskSchema, updateTaskSchema, updateTaskStatusSchema, updateTaskProgressSchema, postTaskSchema, postTaskImageSchema, postTaskAttachmentSchema, getTaskAttachmentsQuerySchema } from './taskValidation.js';
+import { assignTaskSchema, updateTaskSchema, updateTaskStatusSchema, updateTaskProgressSchema, postTaskSchema, postTaskImageSchema, postTaskAttachmentSchema, getTaskAttachmentsQuerySchema, unarchiveTaskSchema } from './taskValidation.js';
 import taskCommentRoutes from "../taskcomment/taskCommentRoutes.js";
 import { uploadImage, uploadDocument } from '../../shared/middlewares/uploadMiddleware.js';
 import { tasksLimiter } from '../../shared/middlewares/rateLimiter.js';
@@ -315,6 +317,61 @@ router.get('/all/:taskId', checkProjectRoleForTask(['LEADER', 'MEMBER'], true), 
  *                 deletedAt: null
  */
 router.patch('/restore/:taskId', checkProjectRoleForTask(['LEADER'], true), handleRestoreSoftDeletedTask);
+
+/**
+ * @swagger
+ * /api/tasks/{taskId}/archive:
+ *   patch:
+ *     summary: Manually archive a task
+ *     tags: [Tasks]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: taskId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Task archived successfully
+ *       403:
+ *         description: Only the project leader can archive the task
+ */
+router.patch('/:taskId/archive', checkProjectRoleForTask(['LEADER']), handleArchiveTask);
+
+/**
+ * @swagger
+ * /api/tasks/{taskId}/unarchive:
+ *   patch:
+ *     summary: Manually unarchive a task
+ *     tags: [Tasks]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: taskId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               confirmAssigneeRemoval:
+ *                 type: boolean
+ *     responses:
+ *       200:
+ *         description: Task unarchived successfully
+ *       400:
+ *         description: Assignee confirmation required or task not archived
+ *       403:
+ *         description: Only the project leader can unarchive the task
+ */
+router.patch('/:taskId/unarchive', validateRequest(unarchiveTaskSchema), checkProjectRoleForTask(['LEADER']), handleUnarchiveTask);
 
 /**
  * @swagger

@@ -6,6 +6,8 @@ import {
   deleteTaskService,
   softDeleteTaskService,
   restoreSoftDeletedTaskService,
+  archiveTaskService,
+  unarchiveTaskService,
   bulkSoftDeleteTasksService,
   bulkMarkCompletedService,
   softDeleteTasksByProjectService,
@@ -135,7 +137,7 @@ export const handleGetAllUserTasks = async (req, res, next) => {
     const filter = {};
 
     // Validasi sorting
-    const validSortFields = ['createdAt', 'title', 'status', 'project_name', 'priority', 'startDate', 'dueDate'];
+    const validSortFields = ['createdAt', 'title', 'status', 'project_name', 'priority', 'startDate', 'dueDate', 'archivedAt', 'deletedAt'];
     const validOrders = ['asc', 'desc'];
 
     const sortField = validSortFields.includes(sortBy) ? sortBy : 'createdAt';
@@ -225,7 +227,10 @@ const mapTaskDetail = (task) => {
     dueDate: task.dueDate,
     createdAt: task.createdAt,
     updatedAt: task.updatedAt,
+    archivedAt: task.archivedAt,
+    archiveSource: task.archiveSource,
     deletedAt: task.deletedAt,
+    deleteSource: task.deleteSource,
   };
 
   if (task.taskAttachments !== undefined) {
@@ -346,6 +351,31 @@ export const handleRestoreSoftDeletedTask = async (req, res, next) => {
     const taskId = req.params.taskId;
     const restoredTask = await restoreSoftDeletedTaskService(taskId);
     return successResponse(res, "success restoring deleted task", restoredTask);
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const handleArchiveTask = async (req, res, next) => {
+  try {
+    const data = await archiveTaskService({
+      userId: req.user.id,
+      taskId: req.params.taskId,
+    });
+    return successResponse(res, "task has been archived", data);
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const handleUnarchiveTask = async (req, res, next) => {
+  try {
+    const data = await unarchiveTaskService({
+      userId: req.user.id,
+      taskId: req.params.taskId,
+      confirmAssigneeRemoval: req.body?.confirmAssigneeRemoval === true,
+    });
+    return successResponse(res, "task has been unarchived", data);
   } catch (error) {
     next(error);
   }

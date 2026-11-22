@@ -1,7 +1,7 @@
 import { BadRequestError } from '../../../exceptions/errors.js';
 import { getAllTasksByProjectIdService, getAllTasksService } from '../../task/service/taskService.js';
 import { successPaginationResponse, successResponse } from '../../../shared/utils/response.js';
-import { addProjectMemberService, addNewProjectService, deleteProjectService, getAllUserProjectsService, getProjectByIdService, getProjectMembersService, updateActiveProjectMemberService, editProjectService, softDeleteProjectService, getProjectByIdFromAllService, restoreSoftDeletedProjectService, getProjectStatisticsService, getRecentProjectTasksService } from '../service/projectService.js';
+import { addProjectMemberService, addNewProjectService, deleteProjectService, getAllUserProjectsService, getProjectByIdService, getProjectMembersService, getMemberTaskSummaryService, updateActiveProjectMemberService, editProjectService, archiveProjectService, unarchiveProjectService, softDeleteProjectService, getProjectByIdFromAllService, restoreSoftDeletedProjectService, getProjectStatisticsService, getRecentProjectTasksService } from '../service/projectService.js';
 
 export const handlePostProject = async (req, res, next) => {
     try {
@@ -95,6 +95,16 @@ export const handleGetProjectMembers = async (req, res, next) => {
     }
 };
 
+export const handleGetMemberTaskSummary = async (req, res, next) => {
+    try {
+        const { projectId, memberId } = req.params;
+        const summary = await getMemberTaskSummaryService({ projectId, memberId });
+        return successResponse(res, null, summary);
+    } catch (err) {
+        next(err);
+    }
+};
+
 export const handleGetProjectById = async (req, res, next) => {
     try {
         const userId = req.user.id;
@@ -130,6 +140,30 @@ export const handleUpdateProject = async (req, res, next) => {
         })
         //res.json(updated)
         return successResponse(res, "project has been edited", data)
+    } catch (err) {
+        next(err)
+    }
+}
+
+export const handleArchiveProject = async (req, res, next) => {
+    try {
+        const data = await archiveProjectService({
+            userId: req.user.id,
+            projectId: req.params.id,
+        })
+        return successResponse(res, "project has been archived", data)
+    } catch (err) {
+        next(err)
+    }
+}
+
+export const handleUnarchiveProject = async (req, res, next) => {
+    try {
+        const data = await unarchiveProjectService({
+            userId: req.user.id,
+            projectId: req.params.id,
+        })
+        return successResponse(res, "project has been unarchived", data)
     } catch (err) {
         next(err)
     }
@@ -172,7 +206,7 @@ export const handleUpdateActiveProjectMember = async (req, res, next) => {
         const { projectId, memberId } = req.params;
         const isActive = req.body.isActive;
 
-        const updated = await updateActiveProjectMemberService({ projectId, memberId, isActive })
+        const updated = await updateActiveProjectMemberService({ projectId, memberId, isActive, actorUserId: req.user.id })
         //res.json(updated)
         return successResponse(res, (updated.isActive) ? "member has been activated" : "member has been inactivated", updated)
     } catch (err) {
@@ -207,7 +241,7 @@ export const handleGetProjectTasks = async (req, res, next) => {
         const filter = {};
 
         // Validasi sorting
-        const validSortFields = ['createdAt', 'title', 'status', 'assignee_name', 'priority', 'startDate', 'dueDate'];
+        const validSortFields = ['createdAt', 'title', 'status', 'assignee_name', 'priority', 'startDate', 'dueDate', 'archivedAt', 'deletedAt'];
         const validOrders = ['asc', 'desc'];
 
         const sortField = validSortFields.includes(sortBy) ? sortBy : 'createdAt';

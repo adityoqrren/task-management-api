@@ -104,6 +104,8 @@ export const checkProjectRoleForUpdateStatusTask = (allowedRoles = [], all = fal
 
     if (!member) return next(new ForbiddenError('User is not a member of this project'));
 
+    if (!member.isActive) return next(new ForbiddenError('Inactive member of this project'));
+
     if (!allowedRoles.includes(member.role)) {
       return next(new ForbiddenError('You are not authorized to perform this action'));
     }
@@ -155,6 +157,10 @@ export const checkTaskCommentPermission = ({
 
       if (!member) {
         throw new ForbiddenError("User is not a member of this project");
+      }
+
+      if (!member.isActive) {
+        throw new ForbiddenError("Inactive member of this project");
       }
 
       const isLeader = member.role === "LEADER";

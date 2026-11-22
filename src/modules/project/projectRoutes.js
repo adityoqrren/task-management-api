@@ -1,6 +1,6 @@
 import express from 'express';
 import { authenticate } from '../../shared/middlewares/authMiddlewares.js';
-import { handleAddProjectMember, handlePostProject, handleDeleteProject, handleGetProjectById, handleGetProjectMembers, handleGetProjects, handleUpdateProject, handleUpdateActiveProjectMember, handleSoftDeleteProject, handleGetProjectByIdFromAll, handleGetProjectTasks, handleRestoreSoftDeletedProject, handleGetProjectStatistics, handleGetRecentProjectTasks } from './controller/projectController.js';
+import { handleAddProjectMember, handlePostProject, handleDeleteProject, handleGetProjectById, handleGetProjectMembers, handleGetMemberTaskSummary, handleGetProjects, handleUpdateProject, handleUpdateActiveProjectMember, handleArchiveProject, handleUnarchiveProject, handleSoftDeleteProject, handleGetProjectByIdFromAll, handleGetProjectTasks, handleRestoreSoftDeletedProject, handleGetProjectStatistics, handleGetRecentProjectTasks } from './controller/projectController.js';
 import { checkProjectRole } from '../../shared/middlewares/checkProjectRole.js';
 import { validateRequest } from '../../shared/middlewares/validateRequest.js';
 import { postMemberSchema, postProjectSchema, updateMemberActiveStatusSchema } from './projectValidation.js';
@@ -165,6 +165,51 @@ router.get('/:id', handleGetProjectById);
  *               message: "project is success deleted"
  */
 router.patch('/:id', validateRequest(postProjectSchema), handleUpdateProject);
+
+/**
+ * @swagger
+ * /api/projects/{id}/archive:
+ *   patch:
+ *     summary: Archive a project and its non-archived tasks
+ *     tags: [Projects]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Project archived successfully
+ *       403:
+ *         description: Only the project leader can archive the project
+ */
+router.patch('/:id/archive', checkProjectRole(['LEADER']), handleArchiveProject);
+
+/**
+ * @swagger
+ * /api/projects/{id}/unarchive:
+ *   patch:
+ *     summary: Unarchive a project and restore tasks archived by the project
+ *     tags: [Projects]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Project unarchived successfully
+ *       403:
+ *         description: Only the project leader can unarchive the project
+ */
+router.patch('/:id/unarchive', checkProjectRole(['LEADER']), handleUnarchiveProject);
+
 router.patch('/:id/soft-delete', checkProjectRole(['LEADER']), handleSoftDeleteProject);
 router.patch('/:id/restore', checkProjectRole(['LEADER'], true), handleRestoreSoftDeletedProject);
 router.delete('/:id', checkProjectRole(['LEADER'], true), handleDeleteProject);
@@ -274,6 +319,110 @@ router.post('/members', validateRequest(postMemberSchema), checkProjectRole(['LE
  */
 router.get('/:id/members/', checkProjectRole(['LEADER', 'MEMBER']), handleGetProjectMembers);
 
+/**
+ * @swagger
+ * /api/projects/{projectId}/members/{memberId}/task-summary:
+ *   get:
+ *     summary: Get task counts for a project member
+ *     description: >
+ *       Returns the member's unfinished and completed task counts in the project.
+ *       Unfinished tasks are TODO and IN_PROGRESS; completed tasks are DONE.
+ *       Deleted tasks are excluded. Active and archived tasks are both included.
+ *     tags: [Projects]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: projectId
+ *         required: true
+ *         schema:
+ *           type: string
+ *       - in: path
+ *         name: memberId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Member task summary retrieved successfully
+ *         content:
+ *           application/json:
+ *             example:
+ *               status: "success"
+ *               data:
+ *                 memberId: "uuid-member"
+ *                 projectId: "uuid-project"
+ *                 unfinishedTasks:
+ *                   total: 5
+ *                   todo: 3
+ *                   inProgress: 2
+ *                 completedTasks:
+ *                   total: 7
+ *       403:
+ *         description: Only the project leader can view this summary
+ *       404:
+ *         description: Project or member not found
+ */
+router.get('/:projectId/members/:memberId/task-summary', checkProjectRole(['LEADER']), handleGetMemberTaskSummary);
+
+/**
+ * @swagger
+ * /api/projects/{projectId}/members/{memberId}/active:
+ *   patch:
+ *     summary: Activate or deactivate a project member
+ *     description: >
+ *       Only the project owner can change a member's active status.
+ *       The owner cannot change their own status; ownership must be transferred
+ *       to another member first. Deactivating a member also unassigns them from
+ *       TODO and IN_PROGRESS tasks in the project.
+ *     tags: [Projects]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: projectId
+ *         required: true
+ *         schema:
+ *           type: string
+ *       - in: path
+ *         name: memberId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - isActive
+ *             properties:
+ *               isActive:
+ *                 type: boolean
+ *                 example: false
+ *     responses:
+ *       200:
+ *         description: Member status updated successfully
+ *         content:
+ *           application/json:
+ *             example:
+ *               status: "success"
+ *               message: "member has been inactivated"
+ *               data:
+ *                 memberId: "uuid-member"
+ *                 projectId: "uuid-project"
+ *                 userId: "uuid-user"
+ *                 role: "MEMBER"
+ *                 isActive: false
+ *                 releasedTaskCount: 2
+ *       400:
+ *         description: Invalid request body, or the project is archived/read-only
+ *       403:
+ *         description: Caller is not the project owner, or is trying to change their own active status
+ *       404:
+ *         description: Project or member not found
+ */
 router.patch('/:projectId/members/:memberId/active', validateRequest(updateMemberActiveStatusSchema), checkProjectRole(['LEADER']), handleUpdateActiveProjectMember);
 
 export default router;
