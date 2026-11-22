@@ -23,11 +23,11 @@ model Users {
   createdAt      DateTime @default(now()) @map("created_at")
 
   //Relation
-  projects         Projects[]       @relation("ProjectLeader")
+  projects         Projects[]        @relation("ProjectLeader")
   projectMembers   ProjectMembers[]
   refreshTokens    RefreshTokens[]
-  activities       ActivityLogs[]   @relation("ActivityLogActor")
-  targetActivities ActivityLogs[]   @relation("ActivityLogTarget")
+  activities       ActivityLogs[]    @relation("ActivityLogActor")
+  targetActivities ActivityLogs[]    @relation("ActivityLogTarget")
   taskComments     TaskComments[]
   taskAttachments  TaskAttachments[]
 }
@@ -39,15 +39,18 @@ model Projects {
   description    String?
   createdAt      DateTime  @default(now()) @map("created_at")
   updatedAt      DateTime  @updatedAt @map("updated_at")
+  archivedAt     DateTime? @map("archived_at")
   deletedAt      DateTime? @map("deleted_at")
   lastActivityAt DateTime  @default(now()) @map("last_activity_at")
 
-  // //Relation
+  // Relations
   leader  Users            @relation("ProjectLeader", fields: [owner], references: [id])
-  tasks   Tasks[] // Relation to Task
+  tasks   Tasks[]
   members ProjectMembers[]
 
   @@index([owner])
+  @@index([archivedAt])
+  @@index([deletedAt])
 }
 
 model ProjectMembers {
@@ -69,21 +72,24 @@ model ProjectMembers {
 }
 
 model Tasks {
-  id          String       @id @default(uuid())
-  title       String
-  description String?
-  completed   Boolean      @default(false)
-  status      TaskStatus   @default(TODO)
-  assigneeId  String?      @map("assignee_id")
-  projectId   String       @map("project_id")
-  priority    TaskPriority @default(MEDIUM)
-  startDate   DateTime     @default(now()) @map("start_date")
-  dueDate     DateTime?    @map("due_date")
-  createdAt   DateTime     @default(now()) @map("created_at")
-  updatedAt   DateTime     @updatedAt @map("updated_at")
-  deletedAt   DateTime?    @map("deleted_at")
+  id            String             @id @default(uuid())
+  title         String
+  description   String?
+  completed     Boolean            @default(false)
+  status        TaskStatus         @default(TODO)
+  assigneeId    String?            @map("assignee_id")
+  projectId     String             @map("project_id")
+  priority      TaskPriority       @default(MEDIUM)
+  startDate     DateTime           @default(now()) @map("start_date")
+  dueDate       DateTime?          @map("due_date")
+  createdAt     DateTime           @default(now()) @map("created_at")
+  updatedAt     DateTime           @updatedAt @map("updated_at")
+  archivedAt    DateTime?          @map("archived_at")
+  archiveSource TaskArchiveSource? @map("archive_source")
+  deletedAt     DateTime?          @map("deleted_at")
+  deleteSource  TaskDeleteSource?  @map("delete_source")
 
-  //Relation
+  // Relations
   assignee        ProjectMembers?   @relation(fields: [assigneeId], references: [id])
   project         Projects          @relation(fields: [projectId], references: [id], onDelete: Cascade)
   taskAttachments TaskAttachments[]
@@ -93,6 +99,7 @@ model Tasks {
   @@index([assigneeId])
   @@index([completed])
   @@index([deletedAt])
+  @@index([archivedAt])
   @@index([dueDate])
 }
 
@@ -112,9 +119,9 @@ model TaskAttachments {
   task Tasks @relation(fields: [taskId], references: [id], onDelete: Cascade)
   user Users @relation(fields: [userId], references: [id])
 
+  @@unique([taskId, fileName])
   @@index([taskId])
   @@index([userId])
-  @@unique([taskId, fileName])
 }
 
 model TaskComments {
@@ -157,7 +164,7 @@ model RefreshTokens {
 model Notifications {
   id String @id @default(uuid())
 
-  eventId String @unique
+  eventId String
   type    String
 
   recipientId String
@@ -175,6 +182,7 @@ model Notifications {
 
   createdAt DateTime @default(now())
 
+  @@unique([eventId, recipientId])
   @@index([recipientId, createdAt(sort: Desc)])
   @@index([recipientId, isRead])
 }
@@ -225,4 +233,14 @@ enum TaskPriority {
   LOW
   MEDIUM
   HIGH
+}
+
+enum TaskArchiveSource {
+  MANUAL
+  PROJECT
+}
+
+enum TaskDeleteSource {
+  MANUAL
+  PROJECT
 }

@@ -34,8 +34,8 @@ export const addTaskAttachment = async (data) => {
 
 export const addTaskImage = addTaskAttachment;
 
-export const getAllTasks = async (status, { userId, page, limit, filter = {}, sortBy, order, include }) => {
-  console.log(`userId : ${userId} | status ${status} | page ${page} | limit ${limit} | filter ${filter} | sortBy ${sortBy} | order ${order} | include ${include}`);
+export const getAllTasks = async (status, { userId, page, limit, filter = {}, sortBy, order, include, excludeArchivedProjects = false }) => {
+  //console.log(`userId : ${userId} | status ${status} | page ${page} | limit ${limit} | filter ${filter} | sortBy ${sortBy} | order ${order} | include ${include} | excludeArchivedProjects ${excludeArchivedProjects}`);
   const skip = (page - 1) * limit;
 
   const where = {
@@ -51,13 +51,37 @@ export const getAllTasks = async (status, { userId, page, limit, filter = {}, so
     }
   }
 
-  // Handle status 
-  // (Note: This 'status' parameter refers to the soft-delete state: 'active' or 'deleted', 
-  // and NOT the task progress state / TaskStatus enum like TODO or DONE)
+  // Handle lifecycle status.
+  // 'active' means "not manually archived"; tasks archived only because their
+  // parent project was archived (archiveSource = PROJECT) still count as active.
+  // (Note: This 'status' parameter is NOT the task progress state / TaskStatus enum.)
+  const lifecycleFilters = [];
   if (status === "active") {
-    where.deletedAt = null;
+    lifecycleFilters.push(
+      { deletedAt: null },
+      {
+        OR: [
+          { archiveSource: null },
+          { archiveSource: { not: 'MANUAL' } },
+        ],
+      },
+    );
+  } else if (status === "archived") {
+    lifecycleFilters.push(
+      { deletedAt: null },
+      { archiveSource: 'MANUAL' },
+    );
   } else if (status === "deleted") {
-    where.NOT = { deletedAt: null };
+    lifecycleFilters.push({ deletedAt: { not: null } });
+  }
+
+  // /tasks/me only shows tasks whose parent project is not archived.
+  if (excludeArchivedProjects) {
+    lifecycleFilters.push({ project: { archivedAt: null } });
+  }
+
+  if (lifecycleFilters.length > 0) {
+    where.AND = [...(where.AND || []), ...lifecycleFilters];
   }
 
   const includeRelations = {
@@ -118,7 +142,10 @@ export const getAllTasks = async (status, { userId, page, limit, filter = {}, so
       priority: res.priority,
       startDate: res.startDate,
       dueDate: res.dueDate,
-      deletedAt: res.deletedAt
+      archivedAt: res.archivedAt,
+      archiveSource: res.archiveSource,
+      deletedAt: res.deletedAt,
+      deleteSource: res.deleteSource,
     };
 
     if (res.assignee) {
@@ -259,10 +286,52 @@ export const editTask = async (id, data) => {
   });
 };
 
+export const archiveTask = async (id) => {
+  return await prisma.tasks.update({
+    where: { id, deletedAt: null, archivedAt: null },
+    data: { archivedAt: new Date(), archiveSource: 'MANUAL' },
+    include: {
+      project: {
+        select: {
+          id: true,
+          name: true,
+          owner: true,
+        }
+      },
+      assignee: {
+        select: {
+          userId: true,
+        }
+      },
+    }
+  });
+};
+
+export const unarchiveTask = async (id, data = {}) => {
+  return await prisma.tasks.update({
+    where: { id, deletedAt: null, archivedAt: { not: null } },
+    data: { archivedAt: null, archiveSource: null, ...data },
+    include: {
+      project: {
+        select: {
+          id: true,
+          name: true,
+          owner: true,
+        }
+      },
+      assignee: {
+        select: {
+          userId: true,
+        }
+      },
+    }
+  });
+};
+
 export const softDeleteTask = async (id) => {
   return await prisma.tasks.update({
     where: { id },
-    data: { deletedAt: new Date() },
+    data: { deletedAt: new Date(), deleteSource: 'MANUAL' },
     include: {
       project: {
         select: {
@@ -278,10 +347,11 @@ export const softDeleteTasksByProjectId = async (projectId) => {
   return await prisma.tasks.updateMany({
     where: {
       projectId,
-      deletedAt: null, // Optional: hanya yang belum soft delete
+      deletedAt: null, // only tasks that have not been soft deleted
     },
     data: {
       deletedAt: new Date(),
+      deleteSource: 'PROJECT',
     },
   });
 };
@@ -290,14 +360,34 @@ export const restoreSoftDeletedTasksByProjectId = async (projectId) => {
   const totalUpdated = await prisma.tasks.updateMany({
     where: {
       projectId,
+      deleteSource: 'PROJECT',
     },
     data: {
       deletedAt: null,
+      deleteSource: null,
     },
   });
 
   return totalUpdated;
 }
+
+export const getProjectAssigneeUserIds = async (projectId) => {
+  const rows = await prisma.tasks.findMany({
+    where: {
+      projectId,
+      assigneeId: { not: null },
+    },
+    select: {
+      assignee: {
+        select: {
+          userId: true,
+        }
+      }
+    }
+  });
+
+  return [...new Set(rows.map((row) => row.assignee?.userId).filter(Boolean))];
+};
 
 export const deleteTaskAttachment = async (id) => {
   return await prisma.taskAttachments.delete({
@@ -339,7 +429,7 @@ export const bulkSoftDeleteTasks = async (userId, taskIds) => {
 };
 
 export const bulkMarkTasksCompleted = async (userId, taskIds) => {
-  console.log(taskIds);
+  //console.log(taskIds);
   return await prisma.task.updateMany({
     where: {
       id: { in: taskIds },
@@ -364,12 +454,32 @@ export const findValidTasksByIds = async (taskIds, userId, condition = {}) => {
   });
 };
 
-export const getTaskStatisticsByProjectId = async (projectId) => {
+export const getTaskStatusCountsByAssignee = async (projectId, assigneeId) => {
   const groups = await prisma.tasks.groupBy({
     by: ['status'],
     where: {
       projectId,
-      deletedAt: null
+      assigneeId,
+      deletedAt: null,
+    },
+    _count: {
+      status: true,
+    },
+  });
+
+  return groups.reduce((counts, group) => {
+    counts[group.status] = group._count.status;
+    return counts;
+  }, {});
+};
+
+export const getTaskStatisticsByProjectId = async (projectId, { includeArchived = false } = {}) => {
+  const groups = await prisma.tasks.groupBy({
+    by: ['status'],
+    where: {
+      projectId,
+      deletedAt: null,
+      ...(includeArchived ? {} : { archivedAt: null }),
     },
     _count: {
       status: true
@@ -408,6 +518,7 @@ export const getUserTaskCounts = async (userId) => {
       isActive: true,
     },
     deletedAt: null,
+    archivedAt: null,
   };
 
   const [all, todo, inProgress, done, dueSoon, overdue] = await Promise.all([

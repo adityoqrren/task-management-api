@@ -2,8 +2,10 @@
 // import { redis } from "../../config/redis.js";
 import { BadRequestError, InternalServerError, NotFoundError } from "../../../exceptions/errors.js";
 import { getProjectMemberByMemberIdService, updateProjectLastActivityService } from "../../project/service/projectService.js";
+import { getProjectMemberByMemberId, getProjectByIdfromAll } from "../../project/repository/projectRepository.js";
 import { makeError } from "../../../shared/utils/response.js";
-import { bulkMarkTasksCompleted, bulkSoftDeleteTasks, addTask, deleteTask, findValidTasksByIds, getAllTasks, getTaskById, softDeleteTask, editTask, softDeleteTasksByProjectId, restoreSoftDeletedTasksByProjectId, addTaskAttachment, getTaskAttachmentById, getTaskAttachmentsByTaskId, getTaskAttachmentFilenamesByTaskId, deleteTaskAttachment, getTasksByIds, getTaskStatisticsByProjectId, getUserTaskCounts } from "../repository/taskRepository.js";
+import { assertProjectMutable, assertTaskArchivable, assertTaskMutable, assertTaskReopenAllowed, assertTaskRestorable, assertTaskUnarchivable } from "../../../shared/utils/lifecycle.js";
+import { bulkMarkTasksCompleted, bulkSoftDeleteTasks, addTask, deleteTask, findValidTasksByIds, getAllTasks, getTaskById, softDeleteTask, editTask, archiveTask, unarchiveTask, softDeleteTasksByProjectId, restoreSoftDeletedTasksByProjectId, addTaskAttachment, getTaskAttachmentById, getTaskAttachmentsByTaskId, getTaskAttachmentFilenamesByTaskId, deleteTaskAttachment, getTasksByIds, getTaskStatisticsByProjectId, getUserTaskCounts } from "../repository/taskRepository.js";
 import path from 'path';
 import StorageService from "../../../storage/storageService.js";
 import CacheService from "../../../cache/cacheService.js";
@@ -14,6 +16,31 @@ import { sanitizeDescription } from "../../../shared/utils/sanitizeHtml.js";
 
 const storageService = new StorageService();
 const redisClient = new CacheService();
+
+const invalidateUserTaskCaches = async (userIds = []) => {
+  for (const userId of new Set(userIds.filter(Boolean))) {
+    const cacheGroupKey = `tasks_cache_group:user:${userId}`;
+    const keys = await redisClient.getCacheGroup(cacheGroupKey);
+    if (keys.length) {
+      await redisClient.delete(keys);
+      await redisClient.delete(cacheGroupKey);
+    }
+  }
+};
+
+const invalidateProjectTaskCache = async (projectId) => {
+  const cacheGroupKey = `project_cache_group:project:${projectId}:tasks`;
+  const keys = await redisClient.getCacheGroup(cacheGroupKey);
+  if (keys.length) {
+    await redisClient.delete(keys);
+    await redisClient.delete(cacheGroupKey);
+  }
+};
+
+const getProjectLifecycleState = async (projectId) => {
+  if (!projectId) return null;
+  return getProjectByIdfromAll(projectId);
+};
 
 const MAX_FILE_NAME_ATTEMPTS = 10;
 
@@ -27,6 +54,10 @@ const generateUniqueFileName = (baseName) => {
 };
 
 export const addTaskService = async (userId, data) => {
+  if (!data.projectId) throw new BadRequestError('projectId is required');
+  const project = await getProjectLifecycleState(data.projectId);
+  assertProjectMutable(project);
+
   if (data.description !== undefined) {
     data.description = sanitizeDescription(data.description);
   }
@@ -121,7 +152,10 @@ export const getAllTasksByUserIdService = async ({ isSimpleQuery, status, queryP
     }
   }
 
-  const { tasks, totalTasks } = await getAllTasks(status, queryParams);
+  const { tasks, totalTasks } = await getAllTasks(status, {
+    ...queryParams,
+    excludeArchivedProjects: true,
+  });
 
   if (isSimpleQuery) {
     console.log('🔴 Cache miss:', cacheKey);
@@ -180,8 +214,10 @@ export const getTaskByIdWithDeletedDataService = async (userId, id) => {
  * @returns 
  */
 export const assignActiveTaskService = async ({ taskId, projectId, ownerEmail, assigneeUserId, assigneeEmail, memberId }) => {
-  // const taskExisting = await getTaskById(taskId);
-  // if (!taskExisting) throw new NotFoundError('Task not found');
+  if (!taskId) throw new NotFoundError('Task not found');
+  const taskExisting = await getTaskById(taskId, false);
+  const taskProject = await getProjectLifecycleState(taskExisting?.projectId ?? projectId);
+  assertTaskMutable(taskExisting, taskProject);
 
   let newAssigneeUsername;
   let newAssigneeEmail;
@@ -194,7 +230,11 @@ export const assignActiveTaskService = async ({ taskId, projectId, ownerEmail, a
   // only if it is not assigned to null
   if (memberId != null) {
     // check if memberId is id of member in task's project
-    const { userId: newAssigneeUserId, user: { username: _newAssigneeUsername, email: _newAssigneeEmail } } = await getProjectMemberByMemberIdService({ projectId, memberId });
+    const newAssigneeMember = await getProjectMemberByMemberIdService({ projectId, memberId });
+    if (!newAssigneeMember.isActive) {
+      throw new BadRequestError('ASSIGNEE_INACTIVE: cannot assign a task to an inactive project member');
+    }
+    const { userId: newAssigneeUserId, user: { username: _newAssigneeUsername, email: _newAssigneeEmail } } = newAssigneeMember;
 
     // if new member is the same as assigned member
     if (assigneeUserId === newAssigneeUserId) {
@@ -306,9 +346,11 @@ export const assignActiveTaskService = async ({ taskId, projectId, ownerEmail, a
 
 export const editTaskService = async ({ userId, taskId, ownerEmail, assigneeUserId, data, statusUpdate = false }) => {
   console.log(`ini user id : ${userId}`)
-  // console.log(`ini params id : ${id}`)
-  // const taskExisting = await getTaskById(taskId, false)
-  // const existingUserId = taskExisting.assignee?.userId ?? null;
+
+  if (!taskId) throw new NotFoundError('Task not found');
+  const taskExisting = await getTaskById(taskId, false);
+  const taskProject = await getProjectLifecycleState(taskExisting?.projectId);
+  assertTaskMutable(taskExisting, taskProject);
 
   if (data.description !== undefined) {
     data.description = sanitizeDescription(data.description);
@@ -331,6 +373,8 @@ export const editTaskService = async ({ userId, taskId, ownerEmail, assigneeUser
       data.status = 'TODO';
     }
   }
+
+  assertTaskReopenAllowed(taskExisting, data.status);
 
   const editedTask = await editTask(taskId, data);
 
@@ -431,26 +475,109 @@ export const editTaskService = async ({ userId, taskId, ownerEmail, assigneeUser
   };
 };
 
-export const softDeleteTaskService = async ({ taskId, assigneeUserId, projectId, actorId }) => {
-  const softDeletedTask = await softDeleteTask(taskId);
+export const archiveTaskService = async ({ userId, taskId }) => {
+  if (!taskId) throw new NotFoundError('Task not found');
+  const task = await getTaskById(taskId, true);
+  const project = await getProjectLifecycleState(task?.projectId);
+  assertTaskArchivable(task, project);
 
-  //invalidate user cache
-  if (assigneeUserId) {
-    const cacheGroupKey = `tasks_cache_group:user:${assigneeUserId}`;
-    const keys = await redisClient.getCacheGroup(cacheGroupKey);
-    if (keys.length) {
-      await redisClient.delete(keys); // hapus semua cache task list user
-      await redisClient.delete(cacheGroupKey); // bersihkan set-nya juga
+  const archivedTask = await archiveTask(taskId);
+
+  await invalidateUserTaskCaches([task.assignee?.userId, archivedTask.assignee?.userId]);
+  await invalidateProjectTaskCache(archivedTask.projectId);
+
+  //publish task.archived event to queue
+  await publishEvent({
+    id: 'event-' + generateEventId(),
+    type: 'task.archived',
+    actorId: userId,
+    occurredAt: new Date().toISOString(),
+    payload: {
+      taskId: archivedTask.id,
+      taskTitle: archivedTask.title,
+      projectId: archivedTask.projectId,
+      projectName: archivedTask.project?.name ?? null,
+      assignedUserId: archivedTask.assignee?.userId ?? null,
+      ownerId: archivedTask.project?.owner ?? null,
+      archiveSource: 'MANUAL',
+    },
+  });
+
+  await updateProjectLastActivityService(archivedTask.projectId);
+
+  return {
+    taskId: archivedTask.id,
+    archivedAt: archivedTask.archivedAt,
+    archiveSource: archivedTask.archiveSource,
+  };
+};
+
+export const unarchiveTaskService = async ({ userId, taskId, confirmAssigneeRemoval = false }) => {
+  if (!taskId) throw new NotFoundError('Task not found');
+  const task = await getTaskById(taskId, true);
+  const project = await getProjectLifecycleState(task?.projectId);
+  assertTaskUnarchivable(task, project);
+
+  const data = {};
+  let assigneeUserId = task.assignee?.userId ?? null;
+
+  // DONE tasks keep their assignee as a historical record.
+  // Only non-DONE legacy assignments require an explicit confirmation to be released.
+  if (task.assigneeId && task.status !== 'DONE') {
+    const member = await getProjectMemberByMemberId(task.projectId, task.assigneeId);
+    const isActiveMember = Boolean(member?.isActive);
+    if (!isActiveMember) {
+      if (!confirmAssigneeRemoval) {
+        throw new BadRequestError('ASSIGNEE_INACTIVE_CONFIRMATION_REQUIRED');
+      }
+      data.assigneeId = null;
     }
   }
 
-  //TODO: invalidate project task
-  const cacheGroupKey = `project_cache_group:project:${projectId}:tasks`;
-  const keys = await redisClient.getCacheGroup(cacheGroupKey);
-  if (keys.length) {
-    await redisClient.delete(keys); // hapus semua cache project list
-    await redisClient.delete(cacheGroupKey); // bersihkan set-nya juga
-  }
+  const updatedTask = await unarchiveTask(taskId, data);
+
+  await invalidateUserTaskCaches([assigneeUserId, updatedTask.assignee?.userId]);
+  await invalidateProjectTaskCache(updatedTask.projectId);
+
+  //publish task.unarchived event to queue
+  await publishEvent({
+    id: 'event-' + generateEventId(),
+    type: 'task.unarchived',
+    actorId: userId,
+    occurredAt: new Date().toISOString(),
+    payload: {
+      taskId: updatedTask.id,
+      taskTitle: updatedTask.title,
+      projectId: updatedTask.projectId,
+      projectName: updatedTask.project?.name ?? null,
+      assignedUserId: updatedTask.assignee?.userId ?? null,
+      ownerId: updatedTask.project?.owner ?? null,
+      archiveSource: 'MANUAL',
+    },
+  });
+
+  await updateProjectLastActivityService(updatedTask.projectId);
+
+  return {
+    taskId: updatedTask.id,
+    archivedAt: updatedTask.archivedAt,
+    archiveSource: updatedTask.archiveSource,
+    assigneeId: updatedTask.assigneeId,
+  };
+};
+
+export const softDeleteTaskService = async ({ taskId, assigneeUserId, projectId, actorId }) => {
+  if (!taskId) throw new NotFoundError('Task not found');
+  const task = await getTaskById(taskId, true);
+  if (!task) throw new NotFoundError('Task not found');
+  const project = await getProjectLifecycleState(task.projectId ?? projectId);
+  assertProjectMutable(project);
+  if (task.deletedAt) throw new BadRequestError('Task is already deleted');
+
+  const softDeletedTask = await softDeleteTask(taskId);
+
+  await invalidateUserTaskCaches([assigneeUserId, task.assignee?.userId]);
+  await invalidateProjectTaskCache(softDeletedTask.projectId);
 
   //publish task.deleted event to queue
   await publishEvent({
@@ -466,7 +593,7 @@ export const softDeleteTaskService = async ({ taskId, assigneeUserId, projectId,
     },
   });
 
-  await updateProjectLastActivityService(projectId);
+  await updateProjectLastActivityService(softDeletedTask.projectId);
   return softDeletedTask;
 };
 
@@ -483,30 +610,29 @@ export const softDeleteTasksByProjectService = async (projectId) => {
 };
 
 export const restoreSoftDeletedTaskService = async (taskId) => {
-  // console.log(`ini user id : ${userId}`)
-  // console.log(`ini params id : ${id}`)
-  // console.log(`here in restoreSoftDeletedTaskService ${taskId}`);
+  if (!taskId) throw new NotFoundError('Task not found');
   const existing = await getTaskById(taskId, true)
   if (!existing) throw new NotFoundError('Task not found');
   if (existing.deletedAt == null) throw new BadRequestError('Task not yet deleted');
-  //console.log(`assignee id : ${existing.assigneeId}`);
+
+  const project = await getProjectLifecycleState(existing.projectId);
+  assertTaskRestorable(project);
 
   let projectMember = null;
   const data = {
     deletedAt: null,
+    deleteSource: null,
   }
 
   //if task has been assigned
   if (existing.assigneeId) {
-    projectMember = await getProjectMemberByMemberIdService({ projectId: existing.projectId, memberId: existing.assigneeId });
-    // if projectMember is null (member has exited) or member not active and task has not been done yet
-    //console.log(`isActive : ${projectMember.isActive} | completed : ${existing.completed}`);
-    if (!projectMember || (!projectMember.isActive && !existing.completed)) {
+    projectMember = await getProjectMemberByMemberId(existing.projectId, existing.assigneeId);
+    // if projectMember is null (member has exited) or member is inactive and the task is not DONE
+    if (!projectMember || (!projectMember.isActive && existing.status !== 'DONE')) {
       data.assigneeId = null;
     }
   }
 
-  //console.log(`data: ${data.assigneeId}`);
   const updatedTask = await editTask(taskId, data);
 
   //publish event task.restored
@@ -525,29 +651,14 @@ export const restoreSoftDeletedTaskService = async (taskId) => {
     },
   });
 
-  //invalidate user cache
-  if (projectMember) {
-    const cacheGroupKey = `tasks_cache_group:user:${projectMember.userId}`;
-    const keys = await redisClient.getCacheGroup(cacheGroupKey);
-    if (keys.length) {
-      await redisClient.delete(keys); // hapus semua cache task list user
-      await redisClient.delete(cacheGroupKey); // bersihkan set-nya juga
-    }
-  }
-
-  //TODO: invalidate project task
-  const cacheGroupKey = `project_cache_group:project:${updatedTask.projectId}:tasks`;
-  const keys = await redisClient.getCacheGroup(cacheGroupKey);
-  if (keys.length) {
-    await redisClient.delete(keys); // hapus semua cache project list
-    await redisClient.delete(cacheGroupKey); // bersihkan set-nya juga
-  }
-
+  await invalidateUserTaskCaches([existing.assignee?.userId, updatedTask.assignee?.userId]);
+  await invalidateProjectTaskCache(updatedTask.projectId);
   await updateProjectLastActivityService(updatedTask.projectId);
+
   return updatedTask;
 };
 
-export const restoreSoftDeletedTasksByProjectIdService = async ({ projectId }) => {
+export const restoreSoftDeletedTasksByProjectIdService = async (projectId) => {
   try {
     return await restoreSoftDeletedTasksByProjectId(projectId);
   } catch (error) {
@@ -560,6 +671,10 @@ export const deleteTaskService = async ({ userId, taskId }) => {
   const existing = await getTaskById(taskId, true);
   if (!existing) throw new NotFoundError('Task not found');
   if (existing.deletedAt == null) throw new BadRequestError('Task not yet deleted');
+
+  const project = await getProjectLifecycleState(existing.projectId);
+  assertProjectMutable(project);
+
   const deletedTask = await deleteTask(taskId);
   // Invalidate cache: delete cache
   // const deleteOnRedis = await redis.del(
@@ -586,6 +701,11 @@ export const deleteTaskService = async ({ userId, taskId }) => {
 
 // Task Attachment
 export const addTaskAttachmentService = async ({ taskId, userId, fileName, originalFileName, fileBuffer, objectKey, fileMimeType, size }) => {
+  if (!taskId) throw new NotFoundError('Task not found');
+  const task = await getTaskById(taskId, false);
+  const project = await getProjectLifecycleState(task?.projectId);
+  assertTaskMutable(task, project);
+
   // upload to bucket
   const presignedUrlFromBucket = await storageService.writeFile(fileBuffer, objectKey, fileMimeType);
 
@@ -681,6 +801,11 @@ export const getTaskAttachmentsService = async ({ taskId, type = 'all' }) => {
 };
 
 export const deleteTaskAttachmentService = async ({ userId, taskId, attachmentId }) => {
+  if (!taskId) throw new NotFoundError('Task not found');
+  const task = await getTaskById(taskId, false);
+  const project = await getProjectLifecycleState(task?.projectId);
+  assertTaskMutable(task, project);
+
   const existing = await getTaskAttachmentById(taskId, attachmentId);
   if (!existing) throw new NotFoundError('Attachment not found');
   const deletedAttachment = await deleteTaskAttachment(attachmentId);
@@ -781,8 +906,8 @@ export const bulkMarkCompletedService = async (taskIds, userId) => {
   };
 };
 
-export const getTaskStatisticsByProjectIdService = async (projectId) => {
-  return await getTaskStatisticsByProjectId(projectId);
+export const getTaskStatisticsByProjectIdService = async (projectId, options = {}) => {
+  return await getTaskStatisticsByProjectId(projectId, options);
 };
 
 export const getUserTaskCountsService = async (userId) => {

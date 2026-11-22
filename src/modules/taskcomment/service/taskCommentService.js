@@ -2,16 +2,28 @@ import {
   countTaskComments,
   createTaskComment,
   deleteTaskComment,
+  getTaskCommentById,
   getTaskComments,
   updateTaskComment,
 } from "../repository/taskCommentRepository.js";
 
 import { updateProjectLastActivityService } from "../../project/service/projectService.js";
+import { getTaskById } from "../../task/repository/taskRepository.js";
+import { getProjectByIdfromAll } from "../../project/repository/projectRepository.js";
+import { assertTaskMutable } from "../../../shared/utils/lifecycle.js";
+import { NotFoundError } from "../../../exceptions/errors.js";
 import publishEvent from "../../../queue/event/eventPublisher.js";
 import { generateEventId } from "../../../shared/utils/uuid.js";
 import { decodeCursor, encodeCursor } from "../../../shared/utils/cursor.js";
 
 const COMMENT_PREVIEW_LENGTH = 100;
+
+const assertTaskCommentMutable = async (taskId) => {
+  if (!taskId) throw new NotFoundError('Comment not found');
+  const task = await getTaskById(taskId, false);
+  const project = await getProjectByIdfromAll(task?.projectId);
+  assertTaskMutable(task, project);
+};
 
 const getCommentPreview = (content) => {
   if (content.length <= COMMENT_PREVIEW_LENGTH) {
@@ -57,6 +69,8 @@ export const createTaskCommentService = async ({
   taskId,
   content,
 }) => {
+  await assertTaskCommentMutable(taskId);
+
   const comment = await createTaskComment({
     taskId,
     userId,
@@ -92,6 +106,9 @@ export const updateTaskCommentService = async ({
   commentId,
   content,
 }) => {
+  const existingComment = await getTaskCommentById(commentId);
+  await assertTaskCommentMutable(existingComment?.taskId);
+
   const comment = await updateTaskComment({
     commentId,
     data: {
@@ -127,6 +144,9 @@ export const deleteTaskCommentService = async ({
   actorId,
   commentId,
 }) => {
+  const existingComment = await getTaskCommentById(commentId);
+  await assertTaskCommentMutable(existingComment?.taskId);
+
   const comment = await deleteTaskComment(commentId);
 
   //publish task.comment.deleted event to queue

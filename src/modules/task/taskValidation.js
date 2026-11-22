@@ -62,3 +62,9 @@ export const updateTaskProgressSchema = z.object({
         description: z.string().optional()
     }).strict(),
 });
+
+export const unarchiveTaskSchema = z.object({
+    body: z.object({
+        confirmAssigneeRemoval: z.boolean().optional(),
+    }).strict().default({}),
+});

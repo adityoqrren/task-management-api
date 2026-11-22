@@ -1,8 +1,10 @@
 import { Prisma, ProjectRole } from '@prisma/client';
-import { addProject, getProjectsByUserId, getProjectById, editProject, deleteProject, addProjectMember, editProjectMemberById, getAllProjectMembers, updateProjectMemberByProjectUserId, softDeleteProject, getProjectByIdfromAll, getProjectMemberByMemberId, getProjectMemberByUserId, getProjectsByIds, updateProjectLastActivity } from '../repository/projectRepository.js';
+import { addProject, getProjectsByUserId, getProjectById, editProject, deleteProject, addProjectMember, editProjectMemberById, getAllProjectMembers, updateProjectMemberByProjectUserId, getProjectByIdfromAll, getProjectMemberByMemberId, getProjectMemberByUserId, getProjectsByIds, updateProjectLastActivity, archiveProjectWithTasks, unarchiveProjectWithTasks, softDeleteProjectWithTasks, restoreProjectWithTasks, deactivateProjectMemberAndReleaseAssignments } from '../repository/projectRepository.js';
 import { getUserByIdService, getUserByNameOrUsernameService } from '../../user/service/userService.js';
 import { BadRequestError, ForbiddenError, NotFoundError } from '../../../exceptions/errors.js';
-import { getAllTasksService, restoreSoftDeletedTasksByProjectIdService, softDeleteTasksByProjectService, getTaskStatisticsByProjectIdService } from '../../task/service/taskService.js';
+import { getAllTasksService, getTaskStatisticsByProjectIdService } from '../../task/service/taskService.js';
+import { getProjectAssigneeUserIds, getTaskStatusCountsByAssignee } from '../../task/repository/taskRepository.js';
+import { assertProjectMutable } from '../../../shared/utils/lifecycle.js';
 import { getUserById } from '../../user/repository/userRepository.js';
 import CacheService from '../../../cache/cacheService.js';
 import { generateEventId } from '../../../shared/utils/uuid.js';
@@ -12,6 +14,49 @@ import StorageService from '../../../storage/storageService.js';
 
 const redisClient = new CacheService();
 const storageService = new StorageService();
+
+const invalidateProjectTaskCache = async (projectId) => {
+    const cacheGroupKey = `project_cache_group:project:${projectId}:tasks`;
+    const keys = await redisClient.getCacheGroup(cacheGroupKey);
+    if (keys.length) {
+        await redisClient.delete(keys);
+        await redisClient.delete(cacheGroupKey);
+    }
+};
+
+const invalidateUserTaskCaches = async (userIds = []) => {
+    for (const userId of new Set(userIds.filter(Boolean))) {
+        const cacheGroupKey = `tasks_cache_group:user:${userId}`;
+        const keys = await redisClient.getCacheGroup(cacheGroupKey);
+        if (keys.length) {
+            await redisClient.delete(keys);
+            await redisClient.delete(cacheGroupKey);
+        }
+    }
+};
+
+// Project archive/unarchive cascades must produce task audit logs without task notifications.
+const publishProjectCascadeTaskEvents = async ({ userId, project, tasks, type }) => {
+    for (const task of tasks) {
+        await publishEvent({
+            id: 'event-' + generateEventId(),
+            type,
+            actorId: userId,
+            occurredAt: new Date().toISOString(),
+            payload: {
+                taskId: task.id,
+                taskTitle: task.title,
+                projectId: task.projectId,
+                projectName: project.name,
+                assignedUserId: task.assignee?.userId ?? null,
+                ownerId: project.owner,
+                archiveSource: 'PROJECT',
+                cascade: true,
+                auditOnly: true,
+            },
+        });
+    }
+};
 
 export const addNewProjectService = async ({ name, userId, description }) => {
     const project = await addProject({ name, userId, description: sanitizeDescription(description) });
@@ -48,6 +93,7 @@ export const addProjectMemberService = async ({ projectId, userId }) => {
     const user = await getUserByIdService(userId);
     //get project detail
     const project = await getProjectById(projectId);
+    assertProjectMutable(project);
     //add project member
     try {
         const projectMember = await addProjectMember({
@@ -105,27 +151,37 @@ export const getProjectMemberByMemberIdService = async ({ projectId, memberId })
     return member;
 }
 
-export const updateActiveProjectMemberService = async ({ projectId, memberId, isActive }) => {
-    //console.log(`projectId : ${projectId} || userId : ${userId} || isActive : ${isActive}`);
+export const getMemberTaskSummaryService = async ({ projectId, memberId }) => {
+    const member = await getProjectMemberByMemberId(projectId, memberId);
+    if (!member) throw new NotFoundError('Member not found in this project');
+
+    const counts = await getTaskStatusCountsByAssignee(projectId, memberId);
+    const todo = counts.TODO ?? 0;
+    const inProgress = counts.IN_PROGRESS ?? 0;
+    const done = counts.DONE ?? 0;
+
+    return {
+        memberId,
+        projectId,
+        unfinishedTasks: {
+            total: todo + inProgress,
+            todo,
+            inProgress,
+        },
+        completedTasks: {
+            total: done,
+        },
+    };
+};
+
+export const updateMemberActiveStatusService = async ({ projectId, memberId, isActive }) => {
+    const project = await getProjectById(projectId);
+    if (!project) throw new NotFoundError('Project not found');
+    assertProjectMutable(project);
 
     //check existing member
     const member = await getProjectMemberByMemberId(projectId, memberId);
     if (!member) throw new NotFoundError('Member not found in this project');
-
-    //check existing member task in this project
-    //if to deactivate member, we must ensure all tasks undone assigned to that member are assigned to another or null
-    if (!isActive) {
-        const filter = {
-            completed: false,
-            assigneeId: memberId,
-            projectId
-        };
-
-        const { totalTasks } = await getAllTasksService('active', { page: 1, limit: 0, filter });
-        if (totalTasks > 0) {
-            throw new BadRequestError('there are active tasks assigned to this member still undone. change it to done if task is finished. otherwise, assigned to another or null');
-        }
-    }
 
     const cacheGroupKey = `tasks_cache_group:user:${member.userId}`;
     const keys = await redisClient.getCacheGroup(cacheGroupKey);
@@ -133,15 +189,43 @@ export const updateActiveProjectMemberService = async ({ projectId, memberId, is
         await redisClient.delete(keys); // hapus semua cache task list user
         await redisClient.delete(cacheGroupKey); // bersihkan set-nya juga
     }
+    await invalidateProjectTaskCache(projectId);
 
-    //update status
-    const { id, ...rest } = await editProjectMemberById(memberId, { isActive });
+    let updatedMember;
+    let releasedTaskCount = 0;
+    if (!isActive) {
+        const result = await deactivateProjectMemberAndReleaseAssignments(projectId, memberId);
+        updatedMember = result.member;
+        releasedTaskCount = result.releasedTaskCount;
+    } else {
+        updatedMember = await editProjectMemberById(memberId, { isActive });
+    }
 
     await updateProjectLastActivity(projectId);
+    const { id, ...rest } = updatedMember;
     return {
         memberId: id,
-        ...rest
+        ...rest,
+        releasedTaskCount
     };
+}
+
+export const updateActiveProjectMemberService = async ({ projectId, memberId, isActive, actorUserId }) => {
+    const project = await getProjectById(projectId);
+    if (!project) throw new NotFoundError('Project not found');
+
+    if (project.owner !== actorUserId) {
+        throw new ForbiddenError('Only the project owner can update member status');
+    }
+
+    const member = await getProjectMemberByMemberId(projectId, memberId);
+    if (!member) throw new NotFoundError('Member not found in this project');
+
+    if (member.userId === actorUserId) {
+        throw new ForbiddenError('You cannot change your own active status; transfer ownership first');
+    }
+
+    return updateMemberActiveStatusService({ projectId, memberId, isActive });
 }
 
 export const getAllUserProjectsService = async (status, queryParams) => {
@@ -189,6 +273,7 @@ export const getProjectsByIdsService = async ({ projectIds, withDeleted = false 
 export const editProjectService = async ({ userId, projectId, data }) => {
     const project = await getProjectById(projectId)
     if (!project) throw new NotFoundError('Project not found')
+    assertProjectMutable(project)
     if (project.owner !== userId) throw new ForbiddenError("You are not a member of this project")
 
     const sanitizedData = data.description !== undefined
@@ -211,14 +296,97 @@ export const editProjectService = async ({ userId, projectId, data }) => {
     return ({ projectId: id, name })
 }
 
-export const softDeleteProjectService = async ({ userId, projectId }) => {
-    // const project = await getProjectById(projectId)
-    // if (!project) throw new NotFoundError('Project not found')
-    // if (project.owner !== userId) throw new ForbiddenError("You are not a member of this project")
+export const archiveProjectService = async ({ userId, projectId }) => {
+    const project = await getProjectByIdfromAll(projectId);
+    if (!project) throw new NotFoundError('Project not found');
+    if (project.owner !== userId) throw new ForbiddenError("You are not owner of this project");
+    if (project.deletedAt) throw new NotFoundError('PROJECT_DELETED: project not found');
+    if (project.archivedAt) throw new BadRequestError('PROJECT_ALREADY_ARCHIVED');
 
-    // soft delete all tasks in this project
-    await softDeleteTasksByProjectService(projectId);
-    const softDeletedProject = await softDeleteProject(projectId);
+    const assigneeUserIds = await getProjectAssigneeUserIds(projectId);
+    const { project: archivedProject, affectedTasks } = await archiveProjectWithTasks(projectId);
+
+    await invalidateProjectTaskCache(projectId);
+    await invalidateUserTaskCaches(assigneeUserIds);
+
+    //publish project.archived event to queue
+    await publishEvent({
+        id: 'event-' + generateEventId(),
+        type: 'project.archived',
+        actorId: userId,
+        occurredAt: new Date().toISOString(),
+        payload: {
+            projectId: archivedProject.id,
+            projectName: archivedProject.name,
+            archivedTaskCount: affectedTasks.length,
+        }
+    });
+
+    // Audit-only task events for tasks archived by the project cascade.
+    await publishProjectCascadeTaskEvents({
+        userId,
+        project: archivedProject,
+        tasks: affectedTasks,
+        type: 'task.archived.by_project',
+    });
+
+    return {
+        projectId: archivedProject.id,
+        archivedAt: archivedProject.archivedAt,
+    };
+};
+
+export const unarchiveProjectService = async ({ userId, projectId }) => {
+    const project = await getProjectByIdfromAll(projectId);
+    if (!project) throw new NotFoundError('Project not found');
+    if (project.owner !== userId) throw new ForbiddenError("You are not owner of this project");
+    if (project.deletedAt) throw new NotFoundError('PROJECT_DELETED: project not found');
+    if (!project.archivedAt) throw new BadRequestError('PROJECT_NOT_ARCHIVED');
+
+    const assigneeUserIds = await getProjectAssigneeUserIds(projectId);
+    const { project: unarchivedProject, affectedTasks } = await unarchiveProjectWithTasks(projectId);
+
+    await invalidateProjectTaskCache(projectId);
+    await invalidateUserTaskCaches(assigneeUserIds);
+
+    //publish project.unarchived event to queue
+    await publishEvent({
+        id: 'event-' + generateEventId(),
+        type: 'project.unarchived',
+        actorId: userId,
+        occurredAt: new Date().toISOString(),
+        payload: {
+            projectId: unarchivedProject.id,
+            projectName: unarchivedProject.name,
+            unarchivedTaskCount: affectedTasks.length,
+        }
+    });
+
+    // Audit-only task events for tasks unarchived by the project cascade.
+    await publishProjectCascadeTaskEvents({
+        userId,
+        project: unarchivedProject,
+        tasks: affectedTasks,
+        type: 'task.unarchived.by_project',
+    });
+
+    return {
+        projectId: unarchivedProject.id,
+        archivedAt: unarchivedProject.archivedAt,
+    };
+};
+
+export const softDeleteProjectService = async ({ userId, projectId }) => {
+    const project = await getProjectByIdfromAll(projectId);
+    if (!project) throw new NotFoundError('Project not found');
+    if (project.owner !== userId) throw new ForbiddenError("You are not owner of this project");
+    if (project.deletedAt) throw new BadRequestError('PROJECT_ALREADY_DELETED');
+
+    const assigneeUserIds = await getProjectAssigneeUserIds(projectId);
+    const softDeletedProject = await softDeleteProjectWithTasks(projectId);
+
+    await invalidateProjectTaskCache(projectId);
+    await invalidateUserTaskCaches(assigneeUserIds);
 
     //publish project.deleted event to queue
     await publishEvent({
@@ -234,14 +402,17 @@ export const softDeleteProjectService = async ({ userId, projectId }) => {
     return softDeletedProject
 }
 
-//TODO: make restoreSoftDeletedProject -> tasks related to it must be restored too
 export const restoreSoftDeletedProjectService = async ({ userId, projectId }) => {
-    // restore related tasks
-    await restoreSoftDeletedTasksByProjectIdService(projectId);
-    // restore project
-    const res = await editProject(projectId, {
-        deletedAt: null
-    });
+    const project = await getProjectByIdfromAll(projectId);
+    if (!project) throw new NotFoundError('Project not found');
+    if (project.owner !== userId) throw new ForbiddenError("You are not owner of this project");
+    if (!project.deletedAt) throw new BadRequestError('Project is not deleted');
+
+    const assigneeUserIds = await getProjectAssigneeUserIds(projectId);
+    const res = await restoreProjectWithTasks(projectId);
+
+    await invalidateProjectTaskCache(projectId);
+    await invalidateUserTaskCaches(assigneeUserIds);
 
     //publish project.restored event to queue
     await publishEvent({
@@ -282,7 +453,11 @@ export const deleteProjectService = async ({ userId, projectId }) => {
 export const getProjectStatisticsService = async (projectId) => {
     const project = await getProjectById(projectId);
     if (!project) throw new NotFoundError('Project not found');
-    const statistics = await getTaskStatisticsByProjectIdService(projectId);
+    // An archived project is read-only, so its statistics describe all non-deleted
+    // tasks. An active project's statistics describe active (non-archived) work.
+    const statistics = await getTaskStatisticsByProjectIdService(projectId, {
+        includeArchived: Boolean(project.archivedAt),
+    });
     return statistics;
 };
 

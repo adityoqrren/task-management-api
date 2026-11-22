@@ -11,6 +11,13 @@ export const addProject = async (projectData) => {
     });
 };
 
+const buildProjectLifecycleFilter = (status) => {
+    if (status === 'all') return {};
+    if (status === 'archived') return { deletedAt: null, archivedAt: { not: null } };
+    if (status === 'deleted') return { NOT: { deletedAt: null } };
+    return { deletedAt: null, archivedAt: null };
+};
+
 export const getProjectsByUserId = async (status, { userId, page, limit, filter = {}, sortBy, order }) => {
     const skip = (page - 1) * limit;
 
@@ -20,7 +27,7 @@ export const getProjectsByUserId = async (status, { userId, page, limit, filter 
         ...restFilter,
         userId,
         project: {
-            ...(status == "all" ? {} : (status == "deleted") ? { NOT: { deletedAt: null } } : { deletedAt: null }),
+            ...buildProjectLifecycleFilter(status),
             ...(search ? { name: { contains: search, mode: 'insensitive' } } : {})
         }
     };
@@ -40,6 +47,8 @@ export const getProjectsByUserId = async (status, { userId, page, limit, filter 
                     createdAt: true,
                     updatedAt: true,
                     lastActivityAt: true,
+                    archivedAt: true,
+                    deletedAt: true,
                 }
             }
         },
@@ -59,7 +68,9 @@ export const getProjectsByUserId = async (status, { userId, page, limit, filter 
         role: res.role,
         createdAt: res.project.createdAt,
         updatedAt: res.project.updatedAt,
-        lastActivityAt: res.project.lastActivityAt
+        lastActivityAt: res.project.lastActivityAt,
+        archivedAt: res.project.archivedAt,
+        deletedAt: res.project.deletedAt
     }));
 
     const totalProjects = await prisma.projectMembers.count({ where });
@@ -80,7 +91,9 @@ export const getProjectById = async (id) => {
         description: result.description,
         createdAt: result.createdAt,
         updatedAt: result.updatedAt,
-        lastActivityAt: result.lastActivityAt
+        lastActivityAt: result.lastActivityAt,
+        archivedAt: result.archivedAt,
+        deletedAt: result.deletedAt,
     })
 };
 
@@ -95,6 +108,8 @@ export const getProjectByIdfromAll = async (id) => {
         projectId: result.id,
         name: result.name,
         description: result.description,
+        archivedAt: result.archivedAt,
+        deletedAt: result.deletedAt,
     })
 };
 
@@ -116,10 +131,125 @@ export const softDeleteProject = async (id) => {
     });
 };
 
+/*
+ * Lifecycle operations below are transactional so that a project and its tasks
+ * always change state together. Manual archive/delete sources are never touched.
+ */
+
+export const archiveProjectWithTasks = async (projectId) => {
+    return await prisma.$transaction(async (tx) => {
+        const archivedAt = new Date();
+        const project = await tx.projects.update({
+            where: { id: projectId },
+            data: { archivedAt, lastActivityAt: archivedAt },
+        });
+
+        const affectedTasks = await tx.tasks.findMany({
+            where: { projectId, archivedAt: null, deletedAt: null },
+            select: {
+                id: true,
+                title: true,
+                projectId: true,
+                assignee: {
+                    select: { userId: true },
+                },
+            },
+        });
+
+        await tx.tasks.updateMany({
+            where: { projectId, archivedAt: null, deletedAt: null },
+            data: { archivedAt, archiveSource: 'PROJECT' },
+        });
+
+        return { project, affectedTasks };
+    });
+};
+
+export const unarchiveProjectWithTasks = async (projectId) => {
+    return await prisma.$transaction(async (tx) => {
+        const project = await tx.projects.update({
+            where: { id: projectId },
+            data: { archivedAt: null, lastActivityAt: new Date() },
+        });
+
+        const affectedTasks = await tx.tasks.findMany({
+            where: { projectId, archiveSource: 'PROJECT', deletedAt: null },
+            select: {
+                id: true,
+                title: true,
+                projectId: true,
+                assignee: {
+                    select: { userId: true },
+                },
+            },
+        });
+
+        await tx.tasks.updateMany({
+            where: { projectId, archiveSource: 'PROJECT', deletedAt: null },
+            data: { archivedAt: null, archiveSource: null },
+        });
+
+        return { project, affectedTasks };
+    });
+};
+
+export const softDeleteProjectWithTasks = async (projectId) => {
+    return await prisma.$transaction(async (tx) => {
+        const deletedAt = new Date();
+        const project = await tx.projects.update({
+            where: { id: projectId },
+            data: { deletedAt, lastActivityAt: deletedAt },
+        });
+
+        await tx.tasks.updateMany({
+            where: { projectId, deletedAt: null },
+            data: { deletedAt, deleteSource: 'PROJECT' },
+        });
+
+        return project;
+    });
+};
+
+export const restoreProjectWithTasks = async (projectId) => {
+    return await prisma.$transaction(async (tx) => {
+        const project = await tx.projects.update({
+            where: { id: projectId },
+            data: { deletedAt: null, lastActivityAt: new Date() },
+        });
+
+        await tx.tasks.updateMany({
+            where: { projectId, deleteSource: 'PROJECT' },
+            data: { deletedAt: null, deleteSource: null },
+        });
+
+        return project;
+    });
+};
+
 export const updateProjectLastActivity = async (projectId) => {
     return await prisma.projects.update({
         where: { id: projectId },
         data: { lastActivityAt: new Date() }
+    });
+};
+
+export const deactivateProjectMemberAndReleaseAssignments = async (projectId, memberId) => {
+    return await prisma.$transaction(async (tx) => {
+        const member = await tx.projectMembers.update({
+            where: { id: memberId },
+            data: { isActive: false },
+        });
+
+        const released = await tx.tasks.updateMany({
+            where: {
+                projectId,
+                assigneeId: memberId,
+                status: { in: ['TODO', 'IN_PROGRESS'] },
+            },
+            data: { assigneeId: null },
+        });
+
+        return { member, releasedTaskCount: released.count };
     });
 };
 
