@@ -213,7 +213,7 @@ export const getTaskByIdWithDeletedDataService = async (userId, id) => {
  * memberId : member id of a user will be assigned to this task
  * @returns 
  */
-export const assignActiveTaskService = async ({ taskId, projectId, ownerEmail, assigneeUserId, assigneeEmail, memberId }) => {
+export const assignActiveTaskService = async ({ taskId, projectId, ownerEmail, assigneeUserId, assigneeEmail, memberId, actorId }) => {
   if (!taskId) throw new NotFoundError('Task not found');
   const taskExisting = await getTaskById(taskId, false);
   const taskProject = await getProjectLifecycleState(taskExisting?.projectId ?? projectId);
@@ -319,6 +319,24 @@ export const assignActiveTaskService = async ({ taskId, projectId, ownerEmail, a
         description : ${description}
       `
     });
+
+    //publish task.unassigned event to queue when a previous assignee existed
+    if (assigneeUserId != null) {
+      await publishEvent({
+        id: 'event-' + generateEventId(),
+        type: 'task.unassigned',
+        actorId: actorId ?? editedTask.project.owner,
+        occurredAt: new Date().toISOString(),
+        payload: {
+          taskId: editedTask.id,
+          taskTitle: editedTask.title,
+          projectId: editedTask.projectId,
+          projectName: editedTask.project.name,
+          assignedUserId: assigneeUserId,
+          ownerId: editedTask.project.owner,
+        }
+      });
+    }
   }
 
   //invalidate user cache for both (assignee or new assignee)
@@ -590,6 +608,8 @@ export const softDeleteTaskService = async ({ taskId, assigneeUserId, projectId,
       taskTitle: softDeletedTask.title,
       projectId: softDeletedTask.projectId,
       projectName: softDeletedTask.project?.name ?? null,
+      assignedUserId: task.assignee?.userId ?? null,
+      ownerId: project?.owner ?? null,
     },
   });
 

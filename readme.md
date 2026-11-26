@@ -10,7 +10,7 @@ This repository contains the HTTP API only. Notifications and activity logs are 
 - Web clients receive HttpOnly cookies; mobile clients receive tokens in the response body.
 - Cloudflare Turnstile verification on registration and, when required, on login.
 - Login-attempt protection and Redis-backed rate limiting.
-- Projects with owner/leader/member roles and member activation management.
+- Projects with owner/leader/member roles and member activation management, including logged and notified member deactivation/reactivation events.
 - Project lifecycle: archive, unarchive, soft delete, restore, permanent delete.
 - Tasks with status, priority, start/due dates, assignment, comments, and attachments.
 - Task lifecycle: archive, unarchive, soft delete, restore, permanent delete.
@@ -77,8 +77,18 @@ The API publishes domain events to the RabbitMQ topic exchange `domain-events`. 
 
 Events published:
 
-- `project.created`, `project.updated`, `project.archived`, `project.unarchived`, `project.deleted`, `project.restored`, `project.permanent.deleted`, `project.member.added`
-- `task.created`, `task.assigned`, `task.completed`, `task.updated`, `task.archived`, `task.unarchived`, `task.deleted`, `task.restored`, `task.permanent.deleted`
+- `project.created`, `project.updated`, `project.archived`, `project.unarchived`, `project.deleted`, `project.restored`, `project.permanent.deleted`, `project.member.added`, `project.member.deactivated`, `project.member.reactivated`
+- `task.created`, `task.assigned`, `task.unassigned`, `task.completed`, `task.updated`, `task.archived`, `task.unarchived`, `task.deleted`, `task.restored`, `task.permanent.deleted`
+
+Member status events (`project.member.deactivated` / `project.member.reactivated`) are logged and
+the affected member is notified through the workers. The event contract and recipient rules are
+documented in `docs/project-member-status-events.md`.
+
+`task.unassigned` and `task.deleted` notify the affected assignee. See
+`docs/task-unassigned-and-deleted-events.md`.
+
+`task.restored` notifies the task's assignee when that assignee is still an active project member.
+See `docs/task-restored-event.md`.
 
 Because of this design, the API only reads from the `Notifications` and `ActivityLogs` tables. If the worker services are not running locally, those tables stay empty even though the API works.
 
