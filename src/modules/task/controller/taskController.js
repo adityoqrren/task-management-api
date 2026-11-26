@@ -89,7 +89,7 @@ export const handleAssignActiveTask = async (req, res, next) => {
   console.log(`taskId : ${taskId} - memberId: ${memberId}`);
 
   try {
-    const result = await assignActiveTaskService({ taskId, projectId, ownerEmail, assigneeUserId, assigneeEmail, memberId });
+    const result = await assignActiveTaskService({ taskId, projectId, ownerEmail, assigneeUserId, assigneeEmail, memberId, actorId: req.user.id });
     return successResponse(res, "member has been assigned to task", {
       taskId: result.id,
       memberId: result.assigneeId,

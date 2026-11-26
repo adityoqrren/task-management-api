@@ -82,7 +82,7 @@ router.use(projectsLimiter);
 router.post('/', validateRequest(postProjectSchema), handlePostProject);
 router.get('/', handleGetProjects);
 // router.get('/all', handleGetProjectsFromAll);
-router.get('/all/:id', handleGetProjectByIdFromAll);
+router.get('/all/:id', checkProjectRole(['LEADER'], true), handleGetProjectByIdFromAll);
 /**
  * @swagger
  * /api/projects/{id}:
@@ -110,7 +110,7 @@ router.get('/all/:id', handleGetProjectByIdFromAll);
  *                 members: []
  */
 router.get('/:id/statistics', checkProjectRole(['LEADER', 'MEMBER']), handleGetProjectStatistics);
-router.get('/:id', handleGetProjectById);
+router.get('/:id', checkProjectRole(['LEADER', 'MEMBER']), handleGetProjectById);
 
 /**
  * @swagger

@@ -248,6 +248,11 @@ In the verified run, the 4 released assignments were: an active `TODO` task, an 
 `IN_PROGRESS` task, a manually archived `TODO` task, and a soft-deleted `TODO` task. The two `DONE`
 tasks in the same project kept their assignee.
 
+Deactivation also publishes a `project.member.deactivated` domain event. The activity-log worker
+persists it (with the member as `targetUserId`) and the notification worker notifies the affected
+member. `releasedTaskCount` is included in the payload. See
+`docs/project-member-status-events.md` for the event contract and recipient rules.
+
 ---
 
 ## 4. Member reactivation
@@ -263,6 +268,8 @@ tasks in the same project kept their assignee.
 ```
 
 Reactivation only changes membership state. Previously released assignments are **not** restored.
+It also publishes a `project.member.reactivated` event so the change is logged and the member is
+notified (see `docs/project-member-status-events.md`).
 
 **Verified response — 200 OK:**
 
@@ -721,7 +728,13 @@ task to the archived state and preserves `archivedAt` / `archiveSource`.
 ```powershell
 node --env-file=.env.dev verify_archive_feature.js
 node --env-file=.env.dev verify_member_inactivation.js
+node --env-file=.env.dev verify_member_status_events.js
 ```
+
+The third script verifies that member deactivation/reactivation emits the
+`project.member.deactivated` / `project.member.reactivated` events and that the workers persist the
+activity log and the member notification. It requires the worker services to be running. See
+`docs/project-member-status-events.md`.
 
 Both scripts create temporary users/projects/tasks, run the scenarios, write captured responses to
 `scratch/`, and remove the temporary data at the end.

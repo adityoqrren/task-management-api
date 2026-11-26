@@ -174,7 +174,7 @@ export const getMemberTaskSummaryService = async ({ projectId, memberId }) => {
     };
 };
 
-export const updateMemberActiveStatusService = async ({ projectId, memberId, isActive }) => {
+export const updateMemberActiveStatusService = async ({ projectId, memberId, isActive, actorUserId }) => {
     const project = await getProjectById(projectId);
     if (!project) throw new NotFoundError('Project not found');
     assertProjectMutable(project);
@@ -202,6 +202,21 @@ export const updateMemberActiveStatusService = async ({ projectId, memberId, isA
     }
 
     await updateProjectLastActivity(projectId);
+
+    //publish project.member.deactivated / project.member.reactivated event to queue
+    await publishEvent({
+        id: 'event-' + generateEventId(),
+        type: isActive ? 'project.member.reactivated' : 'project.member.deactivated',
+        actorId: actorUserId ?? project.owner,
+        occurredAt: new Date().toISOString(),
+        payload: {
+            projectId,
+            projectName: project.name,
+            memberUserId: updatedMember.userId,
+            releasedTaskCount,
+        }
+    });
+
     const { id, ...rest } = updatedMember;
     return {
         memberId: id,
@@ -225,7 +240,7 @@ export const updateActiveProjectMemberService = async ({ projectId, memberId, is
         throw new ForbiddenError('You cannot change your own active status; transfer ownership first');
     }
 
-    return updateMemberActiveStatusService({ projectId, memberId, isActive });
+    return updateMemberActiveStatusService({ projectId, memberId, isActive, actorUserId });
 }
 
 export const getAllUserProjectsService = async (status, queryParams) => {
@@ -249,8 +264,7 @@ export const getAllUserProjectsService = async (status, queryParams) => {
 export const getProjectByIdService = async ({ projectId, userId }) => {
     const project = await getProjectById(projectId)
     if (!project) throw new NotFoundError('Project not found')
-    // if (project.owner !== userId) throw new ForbiddenError("You are not a member of this project")
-    // check if this user is member or not
+    // check if this user is member or not -> this function is preserved because caller routes not necessarily use middleware
     const checkMember = await getProjectMemberByUserId(projectId, userId);
     if (!checkMember) throw new ForbiddenError("You are not a member of this project")
     return project
@@ -259,6 +273,7 @@ export const getProjectByIdService = async ({ projectId, userId }) => {
 export const getProjectByIdFromAllService = async ({ projectId, userId }) => {
     const project = await getProjectByIdfromAll(projectId)
     if (!project) throw new NotFoundError('Project not found')
+    // check if this user is owner(leader) or not -> this is preserved because caller routes not necessarily use middleware
     if (project.owner !== userId) throw new ForbiddenError("You are not owner of this project")
     return project
 }
